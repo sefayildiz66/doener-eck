@@ -471,13 +471,14 @@ $('#refresh-btn').onclick = () => loadAll();
 
 const staffName = id => A.staff.get(id)?.name || 'Unbekannt';
 const rateOf = sh => (sh.hourly_rate != null ? Number(sh.hourly_rate) : (A.staff.get(sh.staff_id)?.hourly_rate != null ? Number(A.staff.get(sh.staff_id).hourly_rate) : null));
-const payOf = sh => { const r = rateOf(sh); return r == null ? null : netMin(sh) / 60 * r; };
+const netR = sh => Math.round(netMin(sh));
+const payOf = sh => { const r = rateOf(sh); return r == null ? null : Math.round(netR(sh) / 60 * r * 100) / 100; };
 function monthRows() {
   const by = new Map();
   for (const sh of A.month) { if (!by.has(sh.staff_id)) by.set(sh.staff_id, []); by.get(sh.staff_id).push(sh); }
   for (const [id, st] of A.staff) if (st.active && !by.has(id)) by.set(id, []);
   return [...by.entries()].map(([id, list]) => {
-    const net = list.reduce((s, x) => s + netMin(x), 0);
+    const net = list.reduce((s, x) => s + netR(x), 0);
     const days = new Set(list.map(x => dayKey(x.start_at))).size;
     const nflags = list.reduce((s, x) => s + flags(x).filter(f => f[0] !== 'ed' && f[0] !== 'open').length, 0);
     const pays = list.map(payOf);
@@ -519,13 +520,13 @@ function renderMonth() {
   $('#m-totals').innerHTML = `<div><span class="lbl">Stunden gesamt</span><b>${fmtH(total)}</b></div><div><span class="lbl">Brutto gesamt</span><b>${eur(totalPay)}</b></div><div><span class="lbl">Schichten</span><b>${A.month.length}</b></div>`;
   const t = $('#m-table');
   if (!rows.length) { t.innerHTML = '<tbody><tr><td class="empty">Noch keine Mitarbeiter. Unten unter „Mitarbeiter“ anlegen.</td></tr></tbody>'; return; }
-  let html = '<thead><tr><th>Mitarbeiter</th><th class="r">Tage</th><th class="r">Stunden</th><th class="r hide-s">Dezimal</th><th class="r">Brutto</th><th>Hinweise</th></tr></thead><tbody>';
+  let html = '<thead><tr><th>Mitarbeiter</th><th class="r">Tage</th><th class="r">Stunden</th><th class="r">Brutto</th><th>Hinweise</th></tr></thead><tbody>';
   for (const r of rows) {
     const open = A.expanded.has(r.id);
-    html += `<tr class="person" data-p="${r.id}"><td>${open ? '▾' : '▸'} ${esc(r.name)}</td><td class="r num">${r.days}</td><td class="r num">${fmtH(r.net)}</td><td class="r num hide-s">${fmtDec(r.net)}</td>
+    html += `<tr class="person" data-p="${r.id}"><td>${open ? '▾' : '▸'} ${esc(r.name)}</td><td class="r num">${r.days}</td><td class="r num">${fmtH(r.net)}</td>
       <td class="r num">${r.rate.length || r.pay ? eur(r.pay) : '<span class="flag ed">kein Lohn</span>'}</td>
       <td>${r.missingRate && r.rate.length ? '<span class="flag ed">Lohn fehlt teilw.</span>' : ''}${r.nflags ? `<span class="flag">${r.nflags} Hinweis${r.nflags > 1 ? 'e' : ''}</span>` : ''}</td></tr>`;
-    if (open) html += `<tr class="detail"><td colspan="6">${detailTable(r.list)}</td></tr>`;
+    if (open) html += `<tr class="detail"><td colspan="5">${detailTable(r.list)}</td></tr>`;
   }
   t.innerHTML = html + '</tbody>';
 }
@@ -661,10 +662,10 @@ $('#f-staff').addEventListener('submit', async e => {
 
 $('#csv-btn').onclick = () => {
   const rows = [...A.month].sort((a, b) => staffName(a.staff_id).localeCompare(staffName(b.staff_id), 'de') || ms(a.start_at) - ms(b.start_at));
-  const L = ['Mitarbeiter;Datum;Kommen;Gehen;Pause (Min);Netto (h:mm);Netto (Std. dezimal);Stundenlohn (EUR);Brutto (EUR);Hinweise'];
+  const L = ['Mitarbeiter;Datum;Kommen;Gehen;Pause (Min);Netto (h:mm);Stundenlohn (EUR);Brutto (EUR);Hinweise'];
   for (const s of rows) {
     L.push([staffName(s.staff_id), new Date(ms(s.start_at)).toLocaleDateString('de-AT'), hm(s.start_at), s.end_at ? hm(s.end_at) : '',
-      Math.round(breakMin(s)), fmtH(netMin(s)).replace(' h', ''), fmtDec(netMin(s)),
+      Math.round(breakMin(s)), fmtH(netR(s)).replace(' h', ''),
       rateOf(s) == null ? '' : eurPlain(rateOf(s)), payOf(s) == null ? '' : eurPlain(payOf(s)), flags(s).map(f => f[1]).join(', ')]
       .map(v => '"' + String(v).replace(/"/g, '""') + '"').join(';'));
   }
@@ -722,11 +723,11 @@ $('#pdf-btn').onclick = async () => {
     // Übersicht
     const totalNet = rows.reduce((s, r) => s + r.net, 0), totalPay = rows.reduce((s, r) => s + r.pay, 0);
     doc.autoTable({
-      startY: 28, head: [['Mitarbeiter', 'Tage', 'Stunden', 'Dezimal', 'Stundenlohn', 'Brutto']],
-      body: rows.map(r => [r.name, r.days, fmtH(r.net).replace(' h', ''), fmtDec(r.net), r.rate.length ? r.rate.map(eurPdf).join(' / ') : '-', r.rate.length ? eurPdf(r.pay) : '-']),
-      foot: [['Gesamt', '', fmtH(totalNet).replace(' h', ''), fmtDec(totalNet), '', eurPdf(totalPay)]],
+      startY: 28, head: [['Mitarbeiter', 'Tage', 'Stunden', 'Stundenlohn', 'Brutto']],
+      body: rows.map(r => [r.name, r.days, fmtH(r.net).replace(' h', ''), r.rate.length ? r.rate.map(eurPdf).join(' / ') : '-', r.rate.length ? eurPdf(r.pay) : '-']),
+      foot: [['Gesamt', '', fmtH(totalNet).replace(' h', ''), '', eurPdf(totalPay)]],
       styles: { fontSize: 9 }, headStyles: { fillColor: [21, 24, 29] }, footStyles: { fillColor: [236, 238, 241], textColor: 20 },
-      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
+      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
       margin: { left: 14, right: 14 },
     });
     if (!rows.length) { doc.setFontSize(11); doc.text('Keine Einträge in diesem Monat.', 14, doc.lastAutoTable.finalY + 10); }
@@ -734,12 +735,29 @@ $('#pdf-btn').onclick = async () => {
     for (const r of rows) {
       doc.addPage(); header();
       doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.text(pdfTxt(r.name), 14, 32);
+      const byDay = new Map();
+      for (const s of r.list) { const k = dayKey(s.start_at); if (!byDay.has(k)) byDay.set(k, []); byDay.get(k).push(s); }
+      const body = [], weekendRows = new Set();
+      const nDays = new Date(A.ym.y, A.ym.m + 1, 0).getDate();
+      for (let d = 1; d <= nDays; d++) {
+        const dt = new Date(A.ym.y, A.ym.m, d);
+        const label = dt.toLocaleDateString('de-AT', { weekday: 'short' }).replace('.', '') + ', ' + pad2(d) + '.' + pad2(A.ym.m + 1) + '.' + A.ym.y;
+        const isWe = dt.getDay() === 0 || dt.getDay() === 6;
+        const list = byDay.get(dayKey(dt.getTime())) || [];
+        if (!list.length) { if (isWe) weekendRows.add(body.length); body.push([label, '', '', '', '', '']); continue; }
+        for (const s of list) {
+          if (isWe) weekendRows.add(body.length);
+          body.push([label, hm(s.start_at), s.end_at ? hm(s.end_at) : '-', Math.round(breakMin(s)), fmtH(netR(s)).replace(' h', ''), pdfTxt(flags(s).map(f => f[1]).join(', '))]);
+        }
+      }
       doc.autoTable({
         startY: 36, head: [['Datum', 'Kommen', 'Gehen', 'Pause (Min)', 'Netto', 'Hinweise']],
-        body: r.list.map(s => [dShort(s.start_at), hm(s.start_at), s.end_at ? hm(s.end_at) : '-', Math.round(breakMin(s)), fmtH(netMin(s)).replace(' h', ''), pdfTxt(flags(s).map(f => f[1]).join(', '))]),
+        body,
+        didParseCell: c => { if (c.section === 'body' && weekendRows.has(c.row.index)) c.cell.styles.fillColor = [242, 243, 245]; },
         foot: [['Summe', '', '', '', fmtH(r.net).replace(' h', ''), r.rate.length ? 'Brutto: ' + eurPdf(r.pay) : '']],
-        styles: { fontSize: 9 }, headStyles: { fillColor: [21, 24, 29] }, footStyles: { fillColor: [236, 238, 241], textColor: 20 },
-        columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' } },
+        styles: { fontSize: 8.5, cellPadding: 1.15 }, headStyles: { fillColor: [21, 24, 29] }, footStyles: { fillColor: [236, 238, 241], textColor: 20 },
+        alternateRowStyles: { fillColor: [255, 255, 255] },
+        columnStyles: { 0: { cellWidth: 34 }, 3: { halign: 'right' }, 4: { halign: 'right' } },
         margin: { left: 14, right: 14 },
       });
       let y = doc.lastAutoTable.finalY + 8;
