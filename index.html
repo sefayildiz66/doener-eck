@@ -191,11 +191,11 @@ tr.detail>td{background:var(--sunk);padding:8px}
             <strong id="m-label"></strong>
             <button class="btn sec sm" id="m-next" aria-label="Nächster Monat">›</button>
           </div>
-          <button class="btn sm" id="csv-btn">CSV exportieren</button>
+          <div class="row"><button class="btn sm" id="pdf-btn">PDF-Bericht</button><button class="btn sec sm" id="csv-btn">CSV</button></div>
         </div>
         <div class="totals" id="m-totals"></div>
         <div class="tbl-wrap"><table id="m-table"></table></div>
-        <p class="hint">Antippen zeigt die einzelnen Tage. Hinweise: Pause unter 30 Min. bei mehr als 6 Std. Arbeit, mehr als 10 Std. am Tag, vergessenes Ausstempeln.</p>
+        <p class="hint">Antippen zeigt die einzelnen Tage. Brutto = Netto-Stunden × Stundenlohn, ohne Zuschläge. Hinweise: Pause unter 30 Min. bei mehr als 6 Std. Arbeit, mehr als 10 Std. am Tag, automatisch beendete Schichten.</p>
       </div>
 
       <div class="card">
@@ -217,9 +217,21 @@ tr.detail>td{background:var(--sunk);padding:8px}
         <form id="f-staff" class="row">
           <input id="new-name" placeholder="Name" autocomplete="off" style="flex:2 1 160px">
           <input id="new-pin" type="password" inputmode="numeric" autocomplete="off" placeholder="PIN (4 Ziffern)" maxlength="4" style="flex:1 1 110px">
+          <input id="new-rate" type="number" inputmode="decimal" min="0" step="0.01" placeholder="€/Std. brutto" style="flex:1 1 110px">
           <button class="btn" type="submit">Anlegen</button>
         </form>
         <p class="err-t" id="staff-err" hidden></p>
+      </div>
+
+      <div class="card">
+        <h3>Automatisch beenden</h3>
+        <p class="hint">Wer vergisst auszustempeln, wird nachts automatisch zum Ladenschluss ausgestempelt. Die Schicht wird rot markiert, damit du sie prüfen kannst.</p>
+        <form id="f-settings" class="row">
+          <label class="row" style="gap:6px"><input id="set-auto" type="checkbox" style="width:20px;height:20px"> Aktiv</label>
+          <div class="field" style="flex:0 1 140px"><span class="lbl">Ladenschluss</span><input id="set-close" type="time"></div>
+          <button class="btn sec" type="submit" style="align-self:flex-end">Speichern</button>
+        </form>
+        <p class="err-t" id="set-err" hidden></p>
       </div>
     </div>
   </section>
@@ -241,6 +253,8 @@ const fmtH = m => { m = Math.max(0, Math.round(m)); return Math.floor(m / 60) + 
 const fmtDec = m => (Math.round(m / 60 * 100) / 100).toFixed(2).replace('.', ',');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const first = n => String(n || '').trim().split(/\s+/)[0];
+const eur = v => new Intl.NumberFormat('de-AT', { style: 'currency', currency: 'EUR' }).format(v || 0);
+const eurPlain = v => (Math.round((v || 0) * 100) / 100).toFixed(2).replace('.', ',');
 
 function breakMin(sh, now = Date.now()) {
   if (typeof sh.break_min_manual === 'number') return sh.break_min_manual;
@@ -253,6 +267,7 @@ function flags(sh) {
   if (!sh.end_at) out.push(dayKey(sh.start_at) !== dayKey(now) ? ['red', 'Ausstempeln vergessen?'] : ['open', 'läuft']);
   if (net > 360 && br < 30) out.push(['', 'Pause < 30 Min.']);
   if (net > 600) out.push(['red', 'über 10 Std.']);
+  if (sh.auto_closed) out.push(['red', 'automatisch beendet']);
   if (sh.edited) out.push(['ed', 'korrigiert']);
   return out;
 }
@@ -455,19 +470,38 @@ $('#logout-btn').onclick = $('#denied-out').onclick = async () => { await sb.aut
 $('#refresh-btn').onclick = () => loadAll();
 
 const staffName = id => A.staff.get(id)?.name || 'Unbekannt';
+const rateOf = sh => (sh.hourly_rate != null ? Number(sh.hourly_rate) : (A.staff.get(sh.staff_id)?.hourly_rate != null ? Number(A.staff.get(sh.staff_id).hourly_rate) : null));
+const payOf = sh => { const r = rateOf(sh); return r == null ? null : netMin(sh) / 60 * r; };
+function monthRows() {
+  const by = new Map();
+  for (const sh of A.month) { if (!by.has(sh.staff_id)) by.set(sh.staff_id, []); by.get(sh.staff_id).push(sh); }
+  for (const [id, st] of A.staff) if (st.active && !by.has(id)) by.set(id, []);
+  return [...by.entries()].map(([id, list]) => {
+    const net = list.reduce((s, x) => s + netMin(x), 0);
+    const days = new Set(list.map(x => dayKey(x.start_at))).size;
+    const nflags = list.reduce((s, x) => s + flags(x).filter(f => f[0] !== 'ed' && f[0] !== 'open').length, 0);
+    const pays = list.map(payOf);
+    const pay = pays.reduce((s, v) => s + (v || 0), 0);
+    const missingRate = list.length > 0 && pays.some(v => v == null);
+    const rates = [...new Set(list.map(rateOf).filter(v => v != null))];
+    const rate = rates.length ? rates : (A.staff.get(id)?.hourly_rate != null ? [Number(A.staff.get(id).hourly_rate)] : []);
+    return { id, name: staffName(id), list, net, days, nflags, pay, missingRate, rate };
+  }).sort((a, b) => a.name.localeCompare(b.name, 'de'));
+}
 function monthRange() { return [new Date(A.ym.y, A.ym.m, 1), new Date(A.ym.y, A.ym.m + 1, 1)]; }
 async function loadAll() {
   const [a, b] = monthRange();
-  const [st, mo, op] = await Promise.all([
-    sb.from('staff').select('id,name,active,created_at').order('name'),
+  const [st, mo, op, cfg] = await Promise.all([
+    sb.from('staff').select('id,name,active,created_at,hourly_rate').order('name'),
     sb.from('shifts').select('*').gte('start_at', a.toISOString()).lt('start_at', b.toISOString()).order('start_at'),
     sb.from('shifts').select('*').is('end_at', null).order('start_at'),
+    sb.from('settings').select('*').eq('id', 1).maybeSingle(),
   ]);
   if (st.error || mo.error || op.error) { banner('Daten konnten nicht geladen werden. Bitte „Aktualisieren“ tippen.'); return; }
   banner('');
   A.staff = new Map(st.data.map(s => [s.id, s]));
-  A.month = mo.data; A.openShifts = op.data;
-  renderNow(); renderMonth(); renderStaff(); renderAddForm();
+  A.month = mo.data; A.openShifts = op.data; A.settings = cfg.data || null;
+  renderNow(); renderMonth(); renderStaff(); renderAddForm(); renderSettings();
 }
 setInterval(() => { if (A.isAdmin && !$('#view-admin').hidden && !A.editing) loadAll(); }, 60000);
 
@@ -480,25 +514,18 @@ function renderNow() {
 }
 function renderMonth() {
   $('#m-label').textContent = new Date(A.ym.y, A.ym.m, 1).toLocaleDateString('de-AT', { month: 'long', year: 'numeric' });
-  const by = new Map();
-  for (const sh of A.month) { if (!by.has(sh.staff_id)) by.set(sh.staff_id, []); by.get(sh.staff_id).push(sh); }
-  for (const [id, st] of A.staff) if (st.active && !by.has(id)) by.set(id, []);
-  const rows = [...by.entries()].map(([id, list]) => {
-    const net = list.reduce((s, x) => s + netMin(x), 0);
-    const days = new Set(list.map(x => dayKey(x.start_at))).size;
-    const nflags = list.reduce((s, x) => s + flags(x).filter(f => f[0] !== 'ed' && f[0] !== 'open').length, 0);
-    return { id, name: staffName(id), list, net, days, nflags };
-  }).sort((a, b) => a.name.localeCompare(b.name, 'de'));
-  const total = rows.reduce((s, r) => s + r.net, 0);
-  $('#m-totals').innerHTML = `<div><span class="lbl">Stunden gesamt</span><b>${fmtH(total)}</b></div><div><span class="lbl">Schichten</span><b>${A.month.length}</b></div>`;
+  const rows = monthRows();
+  const total = rows.reduce((s, r) => s + r.net, 0), totalPay = rows.reduce((s, r) => s + r.pay, 0);
+  $('#m-totals').innerHTML = `<div><span class="lbl">Stunden gesamt</span><b>${fmtH(total)}</b></div><div><span class="lbl">Brutto gesamt</span><b>${eur(totalPay)}</b></div><div><span class="lbl">Schichten</span><b>${A.month.length}</b></div>`;
   const t = $('#m-table');
   if (!rows.length) { t.innerHTML = '<tbody><tr><td class="empty">Noch keine Mitarbeiter. Unten unter „Mitarbeiter“ anlegen.</td></tr></tbody>'; return; }
-  let html = '<thead><tr><th>Mitarbeiter</th><th class="r">Tage</th><th class="r">Stunden</th><th class="r hide-s">Dezimal</th><th>Hinweise</th></tr></thead><tbody>';
+  let html = '<thead><tr><th>Mitarbeiter</th><th class="r">Tage</th><th class="r">Stunden</th><th class="r hide-s">Dezimal</th><th class="r">Brutto</th><th>Hinweise</th></tr></thead><tbody>';
   for (const r of rows) {
     const open = A.expanded.has(r.id);
     html += `<tr class="person" data-p="${r.id}"><td>${open ? '▾' : '▸'} ${esc(r.name)}</td><td class="r num">${r.days}</td><td class="r num">${fmtH(r.net)}</td><td class="r num hide-s">${fmtDec(r.net)}</td>
-      <td>${r.nflags ? `<span class="flag">${r.nflags} Hinweis${r.nflags > 1 ? 'e' : ''}</span>` : ''}</td></tr>`;
-    if (open) html += `<tr class="detail"><td colspan="5">${detailTable(r.list)}</td></tr>`;
+      <td class="r num">${r.rate.length || r.pay ? eur(r.pay) : '<span class="flag ed">kein Lohn</span>'}</td>
+      <td>${r.missingRate && r.rate.length ? '<span class="flag ed">Lohn fehlt teilw.</span>' : ''}${r.nflags ? `<span class="flag">${r.nflags} Hinweis${r.nflags > 1 ? 'e' : ''}</span>` : ''}</td></tr>`;
+    if (open) html += `<tr class="detail"><td colspan="6">${detailTable(r.list)}</td></tr>`;
   }
   t.innerHTML = html + '</tbody>';
 }
@@ -554,7 +581,7 @@ $('#m-table').addEventListener('submit', async e => {
   if (!date || !from) return toast('Datum und Kommen ausfüllen');
   const start = parseDT(date, from); let end = to ? parseDT(date, to) : null;
   if (end != null && end <= start) end += 86400000;
-  const body = { start_at: new Date(start).toISOString(), end_at: end == null ? null : new Date(end).toISOString(), edited: true, edited_at: new Date().toISOString() };
+  const body = { start_at: new Date(start).toISOString(), end_at: end == null ? null : new Date(end).toISOString(), edited: true, auto_closed: false, edited_at: new Date().toISOString() };
   if (pauseV !== Math.round(breakMin(s))) body.break_min_manual = pauseV;
   const { error } = await sb.from('shifts').update(body).eq('id', id);
   if (error) return toast(/one_open/.test(error.message) ? 'Dieser Mitarbeiter hat schon eine offene Schicht.' : 'Speichern fehlgeschlagen');
@@ -589,13 +616,23 @@ function renderStaff() {
   el.innerHTML = list.map(v => `<div class="staff-item ${v.active ? '' : 'off'}">
     <span class="nm">${esc(v.name)}</span>
     <div class="row">
+      <input id="rate-${v.id}" type="number" inputmode="decimal" min="0" step="0.01" placeholder="€/Std." value="${v.hourly_rate ?? ''}" style="width:96px" aria-label="Stundenlohn brutto">
+      <button class="btn sec sm" data-rate="${v.id}">Lohn speichern</button>
       <input id="pin-${v.id}" type="password" inputmode="numeric" maxlength="4" placeholder="neue PIN" autocomplete="off" style="width:110px">
       <button class="btn sec sm" data-pin="${v.id}">PIN ändern</button>
       <button class="btn sec sm" data-tog="${v.id}">${v.active ? 'Deaktivieren' : 'Aktivieren'}</button>
     </div></div>`).join('');
 }
 $('#staff-list').addEventListener('click', async e => {
-  const pb = e.target.closest('[data-pin]'), tb = e.target.closest('[data-tog]');
+  const pb = e.target.closest('[data-pin]'), tb = e.target.closest('[data-tog]'), rb = e.target.closest('[data-rate]');
+  if (rb) {
+    const id = rb.dataset.rate, raw = $('#rate-' + id).value.trim().replace(',', '.');
+    const val = raw === '' ? null : Number(raw);
+    if (val != null && (!isFinite(val) || val < 0)) return showErr('#staff-err', 'Bitte einen gültigen Stundenlohn eingeben, z. B. 12,50.');
+    const { error } = await sb.from('staff').update({ hourly_rate: val }).eq('id', id);
+    if (error) return showErr('#staff-err', 'Speichern fehlgeschlagen.');
+    showErr('#staff-err', ''); toast('Stundenlohn gespeichert'); loadAll(); return;
+  }
   if (pb) {
     const id = pb.dataset.pin, pin = $('#pin-' + id).value.trim();
     if (!/^\d{4}$/.test(pin)) return showErr('#staff-err', RPC_ERR.pin_format);
@@ -615,17 +652,20 @@ $('#f-staff').addEventListener('submit', async e => {
   const name = $('#new-name').value.trim(), pin = $('#new-pin').value.trim();
   if (!name) return showErr('#staff-err', RPC_ERR.name_empty);
   if (!/^\d{4}$/.test(pin)) return showErr('#staff-err', RPC_ERR.pin_format);
-  const { error } = await sb.rpc('add_staff', { p_name: name, p_pin: pin });
+  const rateRaw = $('#new-rate').value.trim().replace(',', '.');
+  const { data: newId, error } = await sb.rpc('add_staff', { p_name: name, p_pin: pin });
   if (error) return showErr('#staff-err', rpcMsg(error));
-  $('#new-name').value = $('#new-pin').value = ''; showErr('#staff-err', ''); toast(first(name) + ' angelegt'); loadAll();
+  if (rateRaw !== '' && isFinite(Number(rateRaw))) await sb.from('staff').update({ hourly_rate: Number(rateRaw) }).eq('id', newId);
+  $('#new-name').value = $('#new-pin').value = $('#new-rate').value = ''; showErr('#staff-err', ''); toast(first(name) + ' angelegt'); loadAll();
 });
 
 $('#csv-btn').onclick = () => {
   const rows = [...A.month].sort((a, b) => staffName(a.staff_id).localeCompare(staffName(b.staff_id), 'de') || ms(a.start_at) - ms(b.start_at));
-  const L = ['Mitarbeiter;Datum;Kommen;Gehen;Pause (Min);Netto (h:mm);Netto (Std. dezimal);Hinweise'];
+  const L = ['Mitarbeiter;Datum;Kommen;Gehen;Pause (Min);Netto (h:mm);Netto (Std. dezimal);Stundenlohn (EUR);Brutto (EUR);Hinweise'];
   for (const s of rows) {
     L.push([staffName(s.staff_id), new Date(ms(s.start_at)).toLocaleDateString('de-AT'), hm(s.start_at), s.end_at ? hm(s.end_at) : '',
-      Math.round(breakMin(s)), fmtH(netMin(s)).replace(' h', ''), fmtDec(netMin(s)), flags(s).map(f => f[1]).join(', ')]
+      Math.round(breakMin(s)), fmtH(netMin(s)).replace(' h', ''), fmtDec(netMin(s)),
+      rateOf(s) == null ? '' : eurPlain(rateOf(s)), payOf(s) == null ? '' : eurPlain(payOf(s)), flags(s).map(f => f[1]).join(', ')]
       .map(v => '"' + String(v).replace(/"/g, '""') + '"').join(';'));
   }
   const blob = new Blob(['﻿' + L.join('\r\n')], { type: 'text/csv;charset=utf-8' });
@@ -634,6 +674,89 @@ $('#csv-btn').onclick = () => {
   a.download = `Arbeitszeiten_Doener-Eck_${A.ym.y}-${pad2(A.ym.m + 1)}.csv`;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+};
+
+/* ---------- Einstellungen ---------- */
+function renderSettings() {
+  if (!A.settings) return;
+  if (document.activeElement?.id !== 'set-close') $('#set-close').value = String(A.settings.closing_time || '22:00').slice(0, 5);
+  $('#set-auto').checked = !!A.settings.auto_close;
+}
+$('#f-settings').addEventListener('submit', async e => {
+  e.preventDefault();
+  const t = $('#set-close').value;
+  if (!/^\d{2}:\d{2}$/.test(t)) return showErr('#set-err', 'Bitte eine Uhrzeit für den Ladenschluss eingeben.');
+  const { error } = await sb.from('settings').update({ closing_time: t, auto_close: $('#set-auto').checked }).eq('id', 1);
+  if (error) return showErr('#set-err', 'Speichern fehlgeschlagen.');
+  showErr('#set-err', ''); toast('Gespeichert'); loadAll();
+});
+
+/* ---------- PDF-Bericht ---------- */
+function loadScript(src) {
+  return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+}
+async function ensurePdfLib() {
+  if (!window.jspdf) await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+  if (!window.jspdf.jsPDF.API.autoTable) await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js');
+}
+const pdfTxt = s => String(s).replace(/[–—]/g, '-').replace(/[′’]/g, "'");
+const eurPdf = v => eurPlain(v) + ' EUR';
+$('#pdf-btn').onclick = async () => {
+  const btn = $('#pdf-btn'); btn.disabled = true; btn.textContent = 'Erstelle PDF …';
+  try {
+    await ensurePdfLib();
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    const monthName = new Date(A.ym.y, A.ym.m, 1).toLocaleDateString('de-AT', { month: 'long', year: 'numeric' });
+    const rows = monthRows().filter(r => r.list.length);
+    const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight();
+    const header = () => {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
+      doc.text(pdfTxt('Arbeitszeitaufzeichnung - ' + monthName), 14, 16);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(90);
+      doc.text('Döner Eck · Wattgasse 74, 1170 Wien', 14, 22);
+      doc.text('Erstellt am ' + new Date().toLocaleString('de-AT'), W - 14, 22, { align: 'right' });
+      doc.setTextColor(0);
+    };
+    header();
+    // Übersicht
+    const totalNet = rows.reduce((s, r) => s + r.net, 0), totalPay = rows.reduce((s, r) => s + r.pay, 0);
+    doc.autoTable({
+      startY: 28, head: [['Mitarbeiter', 'Tage', 'Stunden', 'Dezimal', 'Stundenlohn', 'Brutto']],
+      body: rows.map(r => [r.name, r.days, fmtH(r.net).replace(' h', ''), fmtDec(r.net), r.rate.length ? r.rate.map(eurPdf).join(' / ') : '-', r.rate.length ? eurPdf(r.pay) : '-']),
+      foot: [['Gesamt', '', fmtH(totalNet).replace(' h', ''), fmtDec(totalNet), '', eurPdf(totalPay)]],
+      styles: { fontSize: 9 }, headStyles: { fillColor: [21, 24, 29] }, footStyles: { fillColor: [236, 238, 241], textColor: 20 },
+      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
+      margin: { left: 14, right: 14 },
+    });
+    if (!rows.length) { doc.setFontSize(11); doc.text('Keine Einträge in diesem Monat.', 14, doc.lastAutoTable.finalY + 10); }
+    // je Mitarbeiter eine Seite
+    for (const r of rows) {
+      doc.addPage(); header();
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.text(pdfTxt(r.name), 14, 32);
+      doc.autoTable({
+        startY: 36, head: [['Datum', 'Kommen', 'Gehen', 'Pause (Min)', 'Netto', 'Hinweise']],
+        body: r.list.map(s => [dShort(s.start_at), hm(s.start_at), s.end_at ? hm(s.end_at) : '-', Math.round(breakMin(s)), fmtH(netMin(s)).replace(' h', ''), pdfTxt(flags(s).map(f => f[1]).join(', '))]),
+        foot: [['Summe', '', '', '', fmtH(r.net).replace(' h', ''), r.rate.length ? 'Brutto: ' + eurPdf(r.pay) : '']],
+        styles: { fontSize: 9 }, headStyles: { fillColor: [21, 24, 29] }, footStyles: { fillColor: [236, 238, 241], textColor: 20 },
+        columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' } },
+        margin: { left: 14, right: 14 },
+      });
+      let y = doc.lastAutoTable.finalY + 8;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(90);
+      if (r.rate.length) { doc.text(pdfTxt('Brutto = Netto-Stunden × Stundenlohn (' + r.rate.map(eurPdf).join(' / ') + '), ohne Zuschläge und Abzüge.'), 14, y); y += 6; }
+      doc.setTextColor(0);
+      if (y + 30 > H - 10) { doc.addPage(); header(); y = 40; }
+      y += 18;
+      doc.line(14, y, 90, y); doc.line(W - 90, y, W - 14, y);
+      doc.setFontSize(9); doc.text('Unterschrift Arbeitnehmer/in', 14, y + 5); doc.text('Unterschrift Arbeitgeber', W - 90, y + 5);
+    }
+    const pages = doc.getNumberOfPages();
+    for (let i = 1; i <= pages; i++) { doc.setPage(i); doc.setFontSize(8); doc.setTextColor(120); doc.text('Seite ' + i + ' von ' + pages, W - 14, H - 8, { align: 'right' }); }
+    doc.save(`Arbeitszeiten_Doener-Eck_${A.ym.y}-${pad2(A.ym.m + 1)}.pdf`);
+  } catch (x) {
+    toast('PDF konnte nicht erstellt werden. Internet prüfen.');
+  } finally { btn.disabled = false; btn.textContent = 'PDF-Bericht'; }
 };
 
 /* Nach Klick auf Bestätigungslink direkt in den Chef-Bereich */
