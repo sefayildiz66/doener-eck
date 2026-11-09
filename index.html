@@ -720,17 +720,53 @@ $('#pdf-btn').onclick = async () => {
       doc.setTextColor(0);
     };
     header();
-    // Übersicht
+    // Kopfzeile, Werte und Summe einer Spalte immer gleich ausrichten (untereinander)
+    const align = (right, extra) => c => {
+      if (right.includes(c.column.index)) c.cell.styles.halign = 'right';
+      if (extra) extra(c);
+    };
+    const dayLabel = dt => dt.toLocaleDateString('de-AT', { weekday: 'short' }).replace('.', '') + ', ' + pad2(dt.getDate()) + '.' + pad2(dt.getMonth() + 1) + '.' + dt.getFullYear();
+    const nDays = new Date(A.ym.y, A.ym.m + 1, 0).getDate();
+    const shade = [242, 243, 245];
+
+    // 1) Monatssumme je Mitarbeiter
     const totalNet = rows.reduce((s, r) => s + r.net, 0), totalPay = rows.reduce((s, r) => s + r.pay, 0);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.text('Monatssumme', 14, 32);
     doc.autoTable({
-      startY: 28, head: [['Mitarbeiter', 'Tage', 'Stunden', 'Stundenlohn', 'Brutto']],
+      startY: 35, head: [['Mitarbeiter', 'Tage', 'Stunden', 'Stundenlohn', 'Brutto']],
       body: rows.map(r => [r.name, r.days, fmtH(r.net).replace(' h', ''), r.rate.length ? r.rate.map(eurPdf).join(' / ') : '-', r.rate.length ? eurPdf(r.pay) : '-']),
       foot: [['Gesamt', '', fmtH(totalNet).replace(' h', ''), '', eurPdf(totalPay)]],
       styles: { fontSize: 9 }, headStyles: { fillColor: [21, 24, 29] }, footStyles: { fillColor: [236, 238, 241], textColor: 20 },
-      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
+      didParseCell: align([1, 2, 3, 4]),
       margin: { left: 14, right: 14 },
     });
-    if (!rows.length) { doc.setFontSize(11); doc.text('Keine Einträge in diesem Monat.', 14, doc.lastAutoTable.finalY + 10); }
+
+    // 2) Jeder Tag des Monats untereinander, mit allen Mitarbeitern
+    const dayRows = [], dayWe = new Set();
+    for (let d = 1; d <= nDays; d++) {
+      const dt = new Date(A.ym.y, A.ym.m, d), isWe = dt.getDay() === 0 || dt.getDay() === 6;
+      const shifts = A.month.filter(s => dayKey(s.start_at) === dayKey(dt.getTime()))
+        .sort((a, b) => staffName(a.staff_id).localeCompare(staffName(b.staff_id), 'de') || ms(a.start_at) - ms(b.start_at));
+      if (!shifts.length) { if (isWe) dayWe.add(dayRows.length); dayRows.push([dayLabel(dt), '', '', '', '', '']); continue; }
+      for (const s of shifts) {
+        if (isWe) dayWe.add(dayRows.length);
+        dayRows.push([dayLabel(dt), pdfTxt(staffName(s.staff_id)), hm(s.start_at), s.end_at ? hm(s.end_at) : '-', Math.round(breakMin(s)), fmtH(netR(s)).replace(' h', '')]);
+      }
+    }
+    let ty = doc.lastAutoTable.finalY + 10;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.text('Tagesübersicht', 14, ty);
+    doc.autoTable({
+      startY: ty + 3, head: [['Datum', 'Mitarbeiter', 'Kommen', 'Gehen', 'Pause (Min)', 'Netto']],
+      body: dayRows,
+      foot: [['Summe', '', '', '', '', fmtH(totalNet).replace(' h', '')]],
+      showHead: 'everyPage', showFoot: 'lastPage',
+      styles: { fontSize: 8.5, cellPadding: 1.15 }, headStyles: { fillColor: [21, 24, 29] }, footStyles: { fillColor: [236, 238, 241], textColor: 20 },
+      alternateRowStyles: { fillColor: [255, 255, 255] },
+      columnStyles: { 0: { cellWidth: 34 } },
+      didParseCell: align([4, 5], c => { if (c.section === 'body' && dayWe.has(c.row.index)) c.cell.styles.fillColor = shade; }),
+      didDrawPage: () => { if (doc.internal.getCurrentPageInfo().pageNumber > 1) header(); },
+      margin: { top: 30, left: 14, right: 14 },
+    });
     // je Mitarbeiter eine Seite
     for (const r of rows) {
       doc.addPage(); header();
@@ -753,11 +789,11 @@ $('#pdf-btn').onclick = async () => {
       doc.autoTable({
         startY: 36, head: [['Datum', 'Kommen', 'Gehen', 'Pause (Min)', 'Netto', 'Hinweise']],
         body,
-        didParseCell: c => { if (c.section === 'body' && weekendRows.has(c.row.index)) c.cell.styles.fillColor = [242, 243, 245]; },
+        didParseCell: align([3, 4], c => { if (c.section === 'body' && weekendRows.has(c.row.index)) c.cell.styles.fillColor = shade; }),
         foot: [['Summe', '', '', '', fmtH(r.net).replace(' h', ''), r.rate.length ? 'Brutto: ' + eurPdf(r.pay) : '']],
         styles: { fontSize: 8.5, cellPadding: 1.15 }, headStyles: { fillColor: [21, 24, 29] }, footStyles: { fillColor: [236, 238, 241], textColor: 20 },
         alternateRowStyles: { fillColor: [255, 255, 255] },
-        columnStyles: { 0: { cellWidth: 34 }, 3: { halign: 'right' }, 4: { halign: 'right' } },
+        columnStyles: { 0: { cellWidth: 34 }, 1: { cellWidth: 24 }, 2: { cellWidth: 24 }, 3: { cellWidth: 26 }, 4: { cellWidth: 22 } },
         margin: { left: 14, right: 14 },
       });
       let y = doc.lastAutoTable.finalY + 8;
