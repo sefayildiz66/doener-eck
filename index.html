@@ -1,0 +1,643 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#15181D">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Döner Eck Stempeluhr</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2315181D'/%3E%3Ccircle cx='32' cy='32' r='20' fill='none' stroke='%23F2AE16' stroke-width='5'/%3E%3Cpath d='M32 20v13l8 6' stroke='%23F2AE16' stroke-width='5' stroke-linecap='round' fill='none'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<style>
+:root{
+  --bg:#ECEEF1; --surface:#FFFFFF; --sunk:#E2E5EA; --ink:#15181D; --muted:#5A6270; --line:#D3D8DF;
+  --accent:#F2AE16; --accent-ink:#1C1400;
+  --go:#1C8547; --go-soft:#DDF1E5; --stop:#BE332C; --stop-soft:#F8E0DE; --pause:#2F65CF; --pause-soft:#DFE8FA;
+  --warn:#9A5B00; --warn-soft:#FBEBCB;
+  --f-display:"Bricolage Grotesque","Segoe UI",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  --r:14px; color-scheme:light;
+}
+@media (prefers-color-scheme: dark){ :root{
+  --bg:#0F1216; --surface:#181C22; --sunk:#11151A; --ink:#ECEFF3; --muted:#97A1B0; --line:#2A3039;
+  --accent:#F4B728; --go:#3DB771; --go-soft:#163222; --stop:#E8584F; --stop-soft:#3A1A18; --pause:#6C98F1; --pause-soft:#18243D;
+  --warn:#F0B54A; --warn-soft:#3A2B0E; color-scheme:dark }}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.45;
+  padding-left:max(16px, env(safe-area-inset-left,0px));padding-right:max(16px, env(safe-area-inset-right,0px));
+  padding-top:calc(12px + env(safe-area-inset-top,0px));padding-bottom:calc(40px + env(safe-area-inset-bottom,0px))}
+.app{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+.app.wide{max-width:920px}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+input,select{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:9px 11px;min-width:0}
+.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.top{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.brand{display:flex;flex-direction:column;gap:2px}
+.brand h1{font-family:var(--f-display);font-weight:800;font-size:28px;line-height:1;margin:0;letter-spacing:-.01em}
+.brand h1 span{color:var(--accent)}
+.brand small{color:var(--muted);font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+.clock{text-align:right}
+.clock .t{font-family:var(--f-mono);font-weight:600;font-size:34px;line-height:1;letter-spacing:-.02em}
+.clock .d{color:var(--muted);font-size:13px}
+.tabs{display:flex;gap:4px;background:var(--sunk);padding:4px;border-radius:12px}
+.tabs button{flex:1;border:0;background:transparent;padding:9px 10px;border-radius:9px;font-weight:600;color:var(--muted)}
+.tabs button[aria-selected="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.banner{border-radius:10px;padding:10px 12px;background:var(--warn-soft);color:var(--warn);font-size:14px}
+.term{background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:20px;display:flex;flex-direction:column;gap:16px}
+.prompt{text-align:center;font-family:var(--f-display);font-weight:600;font-size:20px}
+.dots{display:flex;justify-content:center;gap:14px;height:22px}
+.dots i{width:18px;height:18px;border-radius:50%;border:2px solid var(--muted);display:block;transition:background .12s}
+.dots i.on{background:var(--ink);border-color:var(--ink)}
+.dots.shake{animation:shake .35s}
+@keyframes shake{20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}
+.msg{min-height:22px;text-align:center;color:var(--muted);font-size:14px}
+.msg.err{color:var(--stop);font-weight:600}
+.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.pad button{border:1px solid var(--line);background:var(--bg);border-radius:var(--r);height:clamp(58px,13vw,76px);font-family:var(--f-mono);font-weight:600;font-size:28px;transition:transform .06s,background .12s}
+.pad button:active{transform:scale(.96);background:var(--sunk)}
+.pad .ok{background:var(--accent);color:var(--accent-ink);border-color:transparent;font-family:var(--f-display);font-size:22px}
+.pad .del{font-size:20px;color:var(--muted)}
+.who{display:flex;flex-direction:column;gap:6px;text-align:center;padding-top:6px}
+.who h2{font-family:var(--f-display);font-weight:800;font-size:30px;margin:0}
+.who p{margin:0;color:var(--muted)}
+.state{align-self:center;display:inline-flex;align-items:center;gap:8px;font-weight:600;font-size:13px;padding:5px 12px;border-radius:999px;letter-spacing:.03em;text-transform:uppercase}
+.state::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor}
+.st-in{background:var(--go-soft);color:var(--go)} .st-out{background:var(--sunk);color:var(--muted)} .st-pause{background:var(--pause-soft);color:var(--pause)}
+.acts{display:grid;gap:10px}
+.big{border:0;border-radius:var(--r);padding:20px 14px;font-family:var(--f-display);font-weight:800;font-size:24px;color:#fff}
+.big.go{background:var(--go)} .big.stop{background:var(--stop)} .big.pause{background:var(--pause)}
+.big:disabled{opacity:.5}
+.ghost{border:1px solid var(--line);background:transparent;border-radius:var(--r);padding:12px;font-weight:600;color:var(--muted)}
+.done{text-align:center;display:flex;flex-direction:column;gap:8px;padding:28px 0}
+.done .mark{font-family:var(--f-display);font-weight:800;font-size:44px;line-height:1}
+.done p{margin:0;font-size:18px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.card h3{margin:0;font-family:var(--f-display);font-weight:600;font-size:19px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.lbl{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.field{display:flex;flex-direction:column;gap:4px;flex:1 1 120px}
+.btn{border:0;border-radius:10px;padding:10px 14px;font-weight:600;background:var(--accent);color:var(--accent-ink)}
+.btn.sec{background:var(--sunk);color:var(--ink)}
+.btn.danger{background:var(--stop);color:#fff}
+.btn.sm{padding:6px 10px;font-size:13px}
+.btn:disabled{opacity:.5}
+.link{border:0;background:none;color:var(--muted);text-decoration:underline;padding:0;font-size:14px}
+.hint{color:var(--muted);font-size:13px;margin:0}
+.err-t{color:var(--stop);font-size:13px;margin:0;font-weight:600}
+.ok-t{color:var(--go);font-size:13px;margin:0;font-weight:600}
+.split{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.monthnav{display:flex;align-items:center;gap:6px}
+.monthnav strong{font-family:var(--f-display);font-size:18px;min-width:150px;text-align:center}
+.tbl-wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);text-align:left;font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+td.r,th.r{text-align:right}
+tr.person{cursor:pointer}
+tr.person:hover td{background:var(--bg)}
+tr.person td:first-child{font-weight:600}
+tr.detail>td{background:var(--sunk);padding:8px}
+.flag{display:inline-block;font-size:11px;font-weight:600;padding:2px 7px;border-radius:999px;background:var(--warn-soft);color:var(--warn);white-space:nowrap;margin:1px 2px 1px 0}
+.flag.red{background:var(--stop-soft);color:var(--stop)}
+.flag.open{background:var(--go-soft);color:var(--go)}
+.flag.pz{background:var(--pause-soft);color:var(--pause)}
+.flag.ed{background:var(--sunk);color:var(--muted);border:1px solid var(--line)}
+.inner td{font-size:13.5px}
+.edit{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;padding:8px 0}
+.edit .field{flex:1 1 100px}
+.staff-item{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid var(--line)}
+.staff-item:last-child{border-bottom:0}
+.staff-item .nm{font-weight:600}
+.staff-item.off .nm{color:var(--muted);text-decoration:line-through}
+.empty{color:var(--muted);text-align:center;padding:14px;font-size:14px}
+.totals{display:flex;gap:18px;flex-wrap:wrap}
+.totals div{display:flex;flex-direction:column}
+.totals b{font-family:var(--f-mono);font-size:22px;font-variant-numeric:tabular-nums}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-weight:600;font-size:14px;z-index:20;max-width:calc(100% - 32px)}
+@media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
+@media (max-width:440px){.clock .t{font-size:28px}.brand h1{font-size:24px}.hide-s{display:none}}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <header class="top">
+    <div class="brand"><small>Arbeitszeit · Wattgasse 74</small><h1>Döner <span>Eck</span></h1></div>
+    <div class="clock"><div class="t num" id="clock">--:--</div><div class="d" id="today"></div></div>
+  </header>
+
+  <div class="tabs" role="tablist" id="tabs">
+    <button id="tab-term" role="tab" aria-selected="true">Stempeln</button>
+    <button id="tab-admin" role="tab" aria-selected="false">Chef</button>
+  </div>
+
+  <div class="banner" id="banner" hidden></div>
+
+  <section id="view-term">
+    <div class="term">
+      <div id="t-pad" style="display:flex;flex-direction:column;gap:14px">
+        <div class="prompt">PIN eingeben</div>
+        <div class="dots" id="dots"></div>
+        <div class="msg" id="msg">Kommen, Pause oder Gehen – mit deiner PIN</div>
+        <div class="pad" id="pad">
+          <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
+          <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
+          <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
+          <button data-k="del" class="del" aria-label="Löschen">⌫</button><button data-k="0">0</button><button data-k="ok" class="ok">OK</button>
+        </div>
+      </div>
+      <div id="t-who" hidden></div>
+    </div>
+  </section>
+
+  <section id="view-admin" hidden style="display:flex;flex-direction:column;gap:14px">
+    <div class="card" id="a-login">
+      <h3 id="login-title">Chef anmelden</h3>
+      <p class="hint" id="login-hint">Mit deiner E-Mail und deinem Passwort. Geht von jedem Gerät aus.</p>
+      <form id="f-login" style="display:flex;flex-direction:column;gap:8px">
+        <input id="login-email" type="email" autocomplete="username" placeholder="E-Mail" required>
+        <input id="login-pw" type="password" autocomplete="current-password" placeholder="Passwort (mind. 8 Zeichen)" required minlength="8">
+        <button class="btn" type="submit" id="login-btn">Anmelden</button>
+      </form>
+      <button class="link" id="login-toggle" type="button">Noch kein Konto? Chef-Konto erstellen</button>
+      <p class="err-t" id="login-err" hidden></p>
+      <p class="ok-t" id="login-ok" hidden></p>
+    </div>
+
+    <div class="card" id="a-denied" hidden>
+      <h3>Kein Zugriff</h3>
+      <p class="hint">Dieses Konto ist nicht als Chef eingetragen.</p>
+      <button class="btn sec" id="denied-out">Abmelden</button>
+    </div>
+
+    <div id="a-main" hidden style="display:flex;flex-direction:column;gap:14px">
+      <div class="card">
+        <div class="split"><h3>Jetzt im Dienst</h3>
+          <div class="row"><button class="btn sec sm" id="refresh-btn">Aktualisieren</button><button class="btn sec sm" id="logout-btn">Abmelden</button></div></div>
+        <div id="a-now"></div>
+      </div>
+
+      <div class="card">
+        <div class="split">
+          <div class="monthnav">
+            <button class="btn sec sm" id="m-prev" aria-label="Voriger Monat">‹</button>
+            <strong id="m-label"></strong>
+            <button class="btn sec sm" id="m-next" aria-label="Nächster Monat">›</button>
+          </div>
+          <button class="btn sm" id="csv-btn">CSV exportieren</button>
+        </div>
+        <div class="totals" id="m-totals"></div>
+        <div class="tbl-wrap"><table id="m-table"></table></div>
+        <p class="hint">Antippen zeigt die einzelnen Tage. Hinweise: Pause unter 30 Min. bei mehr als 6 Std. Arbeit, mehr als 10 Std. am Tag, vergessenes Ausstempeln.</p>
+      </div>
+
+      <div class="card">
+        <h3>Eintrag nachtragen</h3>
+        <form id="f-add" class="edit">
+          <div class="field" style="flex:2 1 160px"><span class="lbl">Mitarbeiter</span><select id="add-staff"></select></div>
+          <div class="field"><span class="lbl">Datum</span><input id="add-date" type="date"></div>
+          <div class="field"><span class="lbl">Kommen</span><input id="add-from" type="time"></div>
+          <div class="field"><span class="lbl">Gehen</span><input id="add-to" type="time"></div>
+          <div class="field"><span class="lbl">Pause Min.</span><input id="add-pause" type="number" min="0" step="5" value="0"></div>
+          <button class="btn" type="submit">Hinzufügen</button>
+        </form>
+        <p class="err-t" id="add-err" hidden></p>
+      </div>
+
+      <div class="card">
+        <h3>Mitarbeiter</h3>
+        <div id="staff-list"></div>
+        <form id="f-staff" class="row">
+          <input id="new-name" placeholder="Name" autocomplete="off" style="flex:2 1 160px">
+          <input id="new-pin" type="password" inputmode="numeric" autocomplete="off" placeholder="PIN (4 Ziffern)" maxlength="4" style="flex:1 1 110px">
+          <button class="btn" type="submit">Anlegen</button>
+        </form>
+        <p class="err-t" id="staff-err" hidden></p>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+const SB_URL = 'https://budfjiilekyconwwogkk.supabase.co';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ1ZGZqaWlsZWt5Y29ud3dvZ2trIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyMzQ4MjUsImV4cCI6MjEwOTgxMDgyNX0.oozIrVRE7Dw4dF5-q4YQC1phjI4dMMEDbsIYBmCkfew';
+const KASSE = location.hash === '#kasse';
+
+const $ = s => document.querySelector(s);
+const pad2 = n => String(n).padStart(2, '0');
+const ms = v => v == null ? null : (typeof v === 'number' ? v : Date.parse(v));
+const hm = t => { const d = new Date(ms(t)); return pad2(d.getHours()) + ':' + pad2(d.getMinutes()); };
+const dayKey = t => { const d = new Date(ms(t)); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); };
+const dShort = t => new Date(ms(t)).toLocaleDateString('de-AT', { weekday: 'short', day: '2-digit', month: '2-digit' });
+const fmtH = m => { m = Math.max(0, Math.round(m)); return Math.floor(m / 60) + ':' + pad2(m % 60) + ' h'; };
+const fmtDec = m => (Math.round(m / 60 * 100) / 100).toFixed(2).replace('.', ',');
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const first = n => String(n || '').trim().split(/\s+/)[0];
+
+function breakMin(sh, now = Date.now()) {
+  if (typeof sh.break_min_manual === 'number') return sh.break_min_manual;
+  return (sh.breaks || []).reduce((a, b) => a + (((ms(b.e) ?? now) - ms(b.s)) / 60000), 0);
+}
+const netMin = (sh, now = Date.now()) => Math.max(0, ((ms(sh.end_at) ?? now) - ms(sh.start_at)) / 60000 - breakMin(sh, now));
+const onBreak = sh => { const b = sh.breaks || []; return b.length > 0 && b[b.length - 1].e == null && typeof sh.break_min_manual !== 'number'; };
+function flags(sh) {
+  const out = [], now = Date.now(), net = netMin(sh, now), br = breakMin(sh, now);
+  if (!sh.end_at) out.push(dayKey(sh.start_at) !== dayKey(now) ? ['red', 'Ausstempeln vergessen?'] : ['open', 'läuft']);
+  if (net > 360 && br < 30) out.push(['', 'Pause < 30 Min.']);
+  if (net > 600) out.push(['red', 'über 10 Std.']);
+  if (sh.edited) out.push(['ed', 'korrigiert']);
+  return out;
+}
+const flagHtml = sh => flags(sh).map(([c, t]) => `<span class="flag ${c}">${t}</span>`).join('');
+
+let toastT;
+function toast(t) { const el = $('#toast'); el.textContent = t; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => el.hidden = true, 2600); }
+function banner(t) { const b = $('#banner'); b.textContent = t || ''; b.hidden = !t; }
+function showErr(id, t) { const e = $(id); e.textContent = t || ''; e.hidden = !t; }
+
+if (!window.supabase) { banner('Verbindung zur Datenbank konnte nicht geladen werden. Internet prüfen und Seite neu laden.'); }
+const sb = window.supabase ? window.supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: !KASSE, autoRefreshToken: true } }) : null;
+
+/* ---------- clock & tabs ---------- */
+function tick() {
+  const n = new Date();
+  $('#clock').textContent = pad2(n.getHours()) + ':' + pad2(n.getMinutes());
+  $('#today').textContent = n.toLocaleDateString('de-AT', { weekday: 'long', day: 'numeric', month: 'long' });
+}
+tick(); setInterval(tick, 10000);
+window.addEventListener('online', () => banner(''));
+window.addEventListener('offline', () => banner('Keine Internetverbindung. Stempeln geht erst wieder, wenn das Internet zurück ist.'));
+
+function setTab(t) {
+  $('#tab-term').setAttribute('aria-selected', t === 'term');
+  $('#tab-admin').setAttribute('aria-selected', t === 'admin');
+  $('#view-term').hidden = t !== 'term';
+  $('#view-admin').hidden = t !== 'admin';
+  $('#app').classList.toggle('wide', t === 'admin');
+  if (t === 'admin') initAdmin();
+}
+$('#tab-term').onclick = () => setTab('term');
+$('#tab-admin').onclick = () => setTab('admin');
+if (KASSE) $('#tabs').hidden = true;
+
+/* ---------- terminal ---------- */
+const T = { pin: '', busy: false, person: null, showingDone: false };
+function renderDots(shake) {
+  const d = $('#dots'); d.innerHTML = '';
+  for (let i = 0; i < 4; i++) { const el = document.createElement('i'); if (i < T.pin.length) el.className = 'on'; d.appendChild(el); }
+  if (shake) { d.classList.remove('shake'); void d.offsetWidth; d.classList.add('shake'); }
+}
+function setMsg(t, err) { const m = $('#msg'); m.textContent = t; m.classList.toggle('err', !!err); }
+function key(k) {
+  if (T.person || T.busy) return;
+  if (k === 'del') T.pin = T.pin.slice(0, -1);
+  else if (k === 'ok') return submitPin();
+  else if (T.pin.length < 4) T.pin += k;
+  renderDots();
+  if (T.pin.length === 4) setTimeout(submitPin, 120);
+}
+$('#pad').addEventListener('click', e => { const b = e.target.closest('button'); if (b) key(b.dataset.k); });
+document.addEventListener('keydown', e => {
+  if ($('#view-term').hidden || /INPUT|SELECT|TEXTAREA/.test(document.activeElement?.tagName)) return;
+  if (/^[0-9]$/.test(e.key)) key(e.key);
+  else if (e.key === 'Backspace') key('del');
+  else if (e.key === 'Enter') key('ok');
+  else if (e.key === 'Escape' && T.person) resetTerm();
+});
+const ERR = {
+  unknown: 'PIN unbekannt. Nochmal versuchen.',
+  locked: 'Zu viele falsche PINs. Bitte 10 Minuten warten.',
+  already_in: 'Du bist schon eingestempelt.',
+  bad_state: 'Status hat sich geändert. Bitte nochmal mit PIN.',
+};
+async function stamp(pin, action) {
+  if (!sb) throw new Error('nodb');
+  const { data, error } = await sb.rpc('stamp', { p_pin: pin, p_action: action });
+  if (error) throw error;
+  return data;
+}
+async function submitPin() {
+  if (T.pin.length !== 4 || T.busy || T.person) return;
+  const pin = T.pin; T.pin = ''; T.busy = true; setMsg('Prüfe …');
+  try {
+    const r = await stamp(pin, 'check');
+    if (r.error) { setMsg(ERR[r.error] || 'Fehler.', true); renderDots(true); return; }
+    T.person = { pin, ...r }; renderDots(); renderWho(); armIdle();
+  } catch (e) {
+    setMsg(navigator.onLine ? 'Verbindung fehlgeschlagen. Nochmal versuchen.' : 'Keine Internetverbindung.', true); renderDots(true);
+  } finally { T.busy = false; }
+}
+let idleT;
+function armIdle() { clearTimeout(idleT); idleT = setTimeout(resetTerm, 20000); }
+function resetTerm() {
+  clearTimeout(idleT); T.person = null; T.pin = ''; T.showingDone = false;
+  $('#t-who').hidden = true; $('#t-pad').hidden = false;
+  setMsg('Kommen, Pause oder Gehen – mit deiner PIN'); renderDots();
+}
+function renderWho() {
+  const p = T.person; if (!p || T.showingDone) return;
+  const w = $('#t-who'); $('#t-pad').hidden = true; w.hidden = false;
+  let state, info, acts;
+  if (p.state === 'out') {
+    state = '<span class="state st-out">Nicht eingestempelt</span>';
+    info = 'Arbeitsbeginn jetzt um <b class="num">' + hm(Date.now()) + '</b>';
+    acts = '<button class="big go" data-a="in">Kommen</button>';
+  } else if (p.state === 'pause') {
+    state = '<span class="state st-pause">In Pause</span>';
+    info = 'Pause seit <b class="num">' + hm(p.since) + '</b> · Arbeit heute <b class="num">' + fmtH(p.worked_min) + '</b>';
+    acts = '<button class="big pause" data-a="resume">Pause beenden</button><button class="big stop" data-a="out">Gehen</button>';
+  } else {
+    state = '<span class="state st-in">Im Dienst</span>';
+    info = 'Seit <b class="num">' + hm(p.start) + '</b> · bisher <b class="num">' + fmtH(p.worked_min) + '</b>';
+    acts = '<button class="big pause" data-a="pause">Pause</button><button class="big stop" data-a="out">Gehen</button>';
+  }
+  w.innerHTML = `<div style="display:flex;flex-direction:column;gap:16px">
+    <div class="who">${state}<h2>Hallo ${esc(p.name)}</h2><p>${info}</p></div>
+    <div class="acts">${acts}</div>
+    <button class="ghost" data-a="cancel">Abbrechen</button></div>`;
+}
+$('#t-who').addEventListener('click', e => {
+  const b = e.target.closest('button[data-a]'); if (!b) return;
+  if (b.dataset.a === 'cancel') return resetTerm();
+  act(b.dataset.a);
+});
+async function act(kind) {
+  if (T.busy || !T.person) return;
+  T.busy = true; clearTimeout(idleT);
+  $('#t-who').querySelectorAll('button').forEach(b => b.disabled = true);
+  const p = T.person;
+  let html;
+  try {
+    const r = await stamp(p.pin, kind);
+    if (r.error) throw new Error(ERR[r.error] || 'Fehler');
+    const at = hm(r.at);
+    const M = {
+      in: ['go', '✓', 'Gekommen um ' + at + '. Gute Schicht!'],
+      pause: ['pause', 'Ⅱ', 'Pause ab ' + at],
+      resume: ['go', '✓', 'Pause beendet um ' + at],
+      out: ['stop', '✓', 'Gegangen um ' + at + ' · heute ' + fmtH(r.worked_min || 0)],
+    }[kind];
+    html = `<div class="done"><div class="mark" style="color:var(--${M[0]})">${M[1]}</div><p><b>${esc(r.name)}</b></p><p>${M[2]}</p></div>`;
+  } catch (e) {
+    html = `<div class="done"><p class="err-t" style="font-size:16px">${esc(e.message && ERR[e.message] ? ERR[e.message] : (e.message && !/fetch/i.test(e.message) ? e.message : 'Speichern hat nicht geklappt. Bitte nochmal mit PIN versuchen.'))}</p></div>`;
+  } finally {
+    T.busy = false; T.showingDone = true; p.pin = null;
+    $('#t-who').innerHTML = html; setTimeout(resetTerm, 3500);
+  }
+}
+renderDots();
+
+/* ---------- admin ---------- */
+const A = { inited: false, user: null, isAdmin: false, staff: new Map(), month: [], openShifts: [], ym: (() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; })(), expanded: new Set(), editing: null, delArm: null, signup: false };
+
+function renderGate() {
+  $('#a-login').hidden = !!A.user;
+  $('#a-denied').hidden = !(A.user && !A.isAdmin);
+  $('#a-main').hidden = !(A.user && A.isAdmin);
+}
+async function initAdmin() {
+  if (!sb) return;
+  if (!A.inited) {
+    A.inited = true;
+    sb.auth.onAuthStateChange((_ev, session) => { setUser(session?.user || null); });
+  }
+  const { data } = await sb.auth.getSession();
+  await setUser(data.session?.user || null);
+}
+async function setUser(u) {
+  const changed = (u?.id || null) !== (A.user?.id || null);
+  A.user = u;
+  if (!u) { A.isAdmin = false; renderGate(); return; }
+  if (changed || !A.isAdmin) {
+    const { data, error } = await sb.rpc('claim_admin');
+    A.isAdmin = !error && data === true;
+  }
+  renderGate();
+  if (A.isAdmin) loadAll();
+}
+$('#login-toggle').onclick = () => {
+  A.signup = !A.signup;
+  $('#login-title').textContent = A.signup ? 'Chef-Konto erstellen' : 'Chef anmelden';
+  $('#login-btn').textContent = A.signup ? 'Konto erstellen' : 'Anmelden';
+  $('#login-toggle').textContent = A.signup ? 'Schon ein Konto? Anmelden' : 'Noch kein Konto? Chef-Konto erstellen';
+  $('#login-hint').textContent = A.signup ? 'Einmalig. Das erste Konto wird automatisch der Chef.' : 'Mit deiner E-Mail und deinem Passwort. Geht von jedem Gerät aus.';
+  $('#login-pw').autocomplete = A.signup ? 'new-password' : 'current-password';
+  showErr('#login-err', ''); $('#login-ok').hidden = true;
+};
+$('#f-login').addEventListener('submit', async e => {
+  e.preventDefault();
+  const email = $('#login-email').value.trim(), password = $('#login-pw').value;
+  showErr('#login-err', ''); $('#login-ok').hidden = true; $('#login-btn').disabled = true;
+  try {
+    if (A.signup) {
+      const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: location.origin + location.pathname } });
+      if (error) throw error;
+      if (!data.session) { const o = $('#login-ok'); o.textContent = 'Fast fertig: Wir haben dir eine E-Mail geschickt. Link darin antippen, dann hier anmelden.'; o.hidden = false; $('#login-toggle').click(); $('#login-ok').hidden = false; }
+    } else {
+      const { error } = await sb.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      $('#login-pw').value = '';
+    }
+  } catch (x) {
+    const m = String(x.message || '');
+    showErr('#login-err', /Invalid login/i.test(m) ? 'E-Mail oder Passwort falsch.' : /not confirmed/i.test(m) ? 'Bitte zuerst den Link in der Bestätigungs-E-Mail antippen.' : /already registered/i.test(m) ? 'Für diese E-Mail gibt es schon ein Konto. Bitte anmelden.' : 'Das hat nicht geklappt: ' + m);
+  } finally { $('#login-btn').disabled = false; }
+});
+$('#logout-btn').onclick = $('#denied-out').onclick = async () => { await sb.auth.signOut(); A.isAdmin = false; setUser(null); toast('Abgemeldet'); };
+$('#refresh-btn').onclick = () => loadAll();
+
+const staffName = id => A.staff.get(id)?.name || 'Unbekannt';
+function monthRange() { return [new Date(A.ym.y, A.ym.m, 1), new Date(A.ym.y, A.ym.m + 1, 1)]; }
+async function loadAll() {
+  const [a, b] = monthRange();
+  const [st, mo, op] = await Promise.all([
+    sb.from('staff').select('id,name,active,created_at').order('name'),
+    sb.from('shifts').select('*').gte('start_at', a.toISOString()).lt('start_at', b.toISOString()).order('start_at'),
+    sb.from('shifts').select('*').is('end_at', null).order('start_at'),
+  ]);
+  if (st.error || mo.error || op.error) { banner('Daten konnten nicht geladen werden. Bitte „Aktualisieren“ tippen.'); return; }
+  banner('');
+  A.staff = new Map(st.data.map(s => [s.id, s]));
+  A.month = mo.data; A.openShifts = op.data;
+  renderNow(); renderMonth(); renderStaff(); renderAddForm();
+}
+setInterval(() => { if (A.isAdmin && !$('#view-admin').hidden && !A.editing) loadAll(); }, 60000);
+
+function renderNow() {
+  const el = $('#a-now');
+  if (!A.openShifts.length) { el.innerHTML = '<div class="empty">Niemand eingestempelt.</div>'; return; }
+  el.innerHTML = '<div class="tbl-wrap"><table><thead><tr><th>Name</th><th>Seit</th><th class="r">Bisher</th><th>Status</th></tr></thead><tbody>' +
+    A.openShifts.map(sh => `<tr><td><b>${esc(staffName(sh.staff_id))}</b></td><td class="num">${dayKey(sh.start_at) === dayKey(Date.now()) ? '' : dShort(sh.start_at) + ' '}${hm(sh.start_at)}</td>
+      <td class="r num">${fmtH(netMin(sh))}</td><td>${onBreak(sh) ? '<span class="flag pz">Pause</span>' : ''}${flagHtml(sh)}</td></tr>`).join('') + '</tbody></table></div>';
+}
+function renderMonth() {
+  $('#m-label').textContent = new Date(A.ym.y, A.ym.m, 1).toLocaleDateString('de-AT', { month: 'long', year: 'numeric' });
+  const by = new Map();
+  for (const sh of A.month) { if (!by.has(sh.staff_id)) by.set(sh.staff_id, []); by.get(sh.staff_id).push(sh); }
+  for (const [id, st] of A.staff) if (st.active && !by.has(id)) by.set(id, []);
+  const rows = [...by.entries()].map(([id, list]) => {
+    const net = list.reduce((s, x) => s + netMin(x), 0);
+    const days = new Set(list.map(x => dayKey(x.start_at))).size;
+    const nflags = list.reduce((s, x) => s + flags(x).filter(f => f[0] !== 'ed' && f[0] !== 'open').length, 0);
+    return { id, name: staffName(id), list, net, days, nflags };
+  }).sort((a, b) => a.name.localeCompare(b.name, 'de'));
+  const total = rows.reduce((s, r) => s + r.net, 0);
+  $('#m-totals').innerHTML = `<div><span class="lbl">Stunden gesamt</span><b>${fmtH(total)}</b></div><div><span class="lbl">Schichten</span><b>${A.month.length}</b></div>`;
+  const t = $('#m-table');
+  if (!rows.length) { t.innerHTML = '<tbody><tr><td class="empty">Noch keine Mitarbeiter. Unten unter „Mitarbeiter“ anlegen.</td></tr></tbody>'; return; }
+  let html = '<thead><tr><th>Mitarbeiter</th><th class="r">Tage</th><th class="r">Stunden</th><th class="r hide-s">Dezimal</th><th>Hinweise</th></tr></thead><tbody>';
+  for (const r of rows) {
+    const open = A.expanded.has(r.id);
+    html += `<tr class="person" data-p="${r.id}"><td>${open ? '▾' : '▸'} ${esc(r.name)}</td><td class="r num">${r.days}</td><td class="r num">${fmtH(r.net)}</td><td class="r num hide-s">${fmtDec(r.net)}</td>
+      <td>${r.nflags ? `<span class="flag">${r.nflags} Hinweis${r.nflags > 1 ? 'e' : ''}</span>` : ''}</td></tr>`;
+    if (open) html += `<tr class="detail"><td colspan="5">${detailTable(r.list)}</td></tr>`;
+  }
+  t.innerHTML = html + '</tbody>';
+}
+function detailTable(list) {
+  if (!list.length) return '<div class="empty">Keine Einträge in diesem Monat.</div>';
+  let h = '<div class="tbl-wrap"><table class="inner"><thead><tr><th>Tag</th><th>Kommen</th><th>Gehen</th><th class="r">Pause</th><th class="r">Netto</th><th></th></tr></thead><tbody>';
+  for (const s of list) {
+    h += `<tr><td>${dShort(s.start_at)}</td><td class="num">${hm(s.start_at)}</td><td class="num">${s.end_at ? hm(s.end_at) : '–'}</td>
+      <td class="r num">${Math.round(breakMin(s))}′</td><td class="r num">${fmtH(netMin(s))}</td>
+      <td style="white-space:nowrap">${flagHtml(s)} <button class="btn sec sm" data-edit="${s.id}">Bearbeiten</button></td></tr>`;
+    if (A.editing === s.id) {
+      h += `<tr><td colspan="6"><form class="edit" data-form="${s.id}">
+        <div class="field"><span class="lbl">Datum</span><input id="e-date-${s.id}" type="date" value="${dayKey(s.start_at)}"></div>
+        <div class="field"><span class="lbl">Kommen</span><input id="e-from-${s.id}" type="time" value="${hm(s.start_at)}"></div>
+        <div class="field"><span class="lbl">Gehen</span><input id="e-to-${s.id}" type="time" value="${s.end_at ? hm(s.end_at) : ''}"></div>
+        <div class="field"><span class="lbl">Pause Min.</span><input id="e-pause-${s.id}" type="number" min="0" step="5" value="${Math.round(breakMin(s))}"></div>
+        <button class="btn sm" type="submit">Speichern</button>
+        <button class="btn danger sm" type="button" data-del="${s.id}">${A.delArm === s.id ? 'Wirklich löschen?' : 'Löschen'}</button>
+        <button class="btn sec sm" type="button" data-cancel="1">Abbrechen</button>
+        <p class="hint" style="flex-basis:100%">„Gehen“ leer lassen = Schicht läuft noch. Gehen vor Kommen zählt als nächster Tag.</p>
+      </form></td></tr>`;
+    }
+  }
+  return h + '</tbody></table></div>';
+}
+function parseDT(dateStr, timeStr) {
+  const [y, mo, d] = dateStr.split('-').map(Number); const [h, mi] = timeStr.split(':').map(Number);
+  return new Date(y, mo - 1, d, h, mi).getTime();
+}
+$('#m-prev').onclick = () => { A.ym.m--; if (A.ym.m < 0) { A.ym.m = 11; A.ym.y--; } A.expanded.clear(); A.editing = null; loadAll(); };
+$('#m-next').onclick = () => { A.ym.m++; if (A.ym.m > 11) { A.ym.m = 0; A.ym.y++; } A.expanded.clear(); A.editing = null; loadAll(); };
+$('#m-table').addEventListener('click', async e => {
+  const p = e.target.closest('tr.person');
+  if (p) { const id = p.dataset.p; A.expanded.has(id) ? A.expanded.delete(id) : A.expanded.add(id); renderMonth(); return; }
+  const ed = e.target.closest('[data-edit]');
+  if (ed) { A.editing = A.editing === ed.dataset.edit ? null : ed.dataset.edit; A.delArm = null; renderMonth(); return; }
+  if (e.target.closest('[data-cancel]')) { A.editing = null; A.delArm = null; renderMonth(); return; }
+  const del = e.target.closest('[data-del]');
+  if (del) {
+    const id = del.dataset.del;
+    if (A.delArm !== id) { A.delArm = id; renderMonth(); return; }
+    const { error } = await sb.from('shifts').delete().eq('id', id);
+    if (error) return toast('Löschen fehlgeschlagen');
+    A.editing = null; A.delArm = null; toast('Eintrag gelöscht'); loadAll();
+  }
+});
+$('#m-table').addEventListener('submit', async e => {
+  e.preventDefault();
+  const f = e.target.closest('form[data-form]'); if (!f) return;
+  const id = f.dataset.form, s = A.month.find(x => x.id === id); if (!s) return;
+  const date = $('#e-date-' + id).value, from = $('#e-from-' + id).value, to = $('#e-to-' + id).value;
+  const pauseV = Math.max(0, Number($('#e-pause-' + id).value) || 0);
+  if (!date || !from) return toast('Datum und Kommen ausfüllen');
+  const start = parseDT(date, from); let end = to ? parseDT(date, to) : null;
+  if (end != null && end <= start) end += 86400000;
+  const body = { start_at: new Date(start).toISOString(), end_at: end == null ? null : new Date(end).toISOString(), edited: true, edited_at: new Date().toISOString() };
+  if (pauseV !== Math.round(breakMin(s))) body.break_min_manual = pauseV;
+  const { error } = await sb.from('shifts').update(body).eq('id', id);
+  if (error) return toast(/one_open/.test(error.message) ? 'Dieser Mitarbeiter hat schon eine offene Schicht.' : 'Speichern fehlgeschlagen');
+  A.editing = null; toast('Gespeichert'); loadAll();
+});
+
+function renderAddForm() {
+  const sel = $('#add-staff'), cur = sel.value;
+  const act = [...A.staff.values()].filter(v => v.active).sort((a, b) => a.name.localeCompare(b.name, 'de'));
+  sel.innerHTML = act.length ? act.map(v => `<option value="${v.id}">${esc(v.name)}</option>`).join('') : '<option value="">– erst Mitarbeiter anlegen –</option>';
+  if (cur && A.staff.has(cur)) sel.value = cur;
+  if (!$('#add-date').value) $('#add-date').value = dayKey(Date.now());
+}
+$('#f-add').addEventListener('submit', async e => {
+  e.preventDefault();
+  const sid = $('#add-staff').value, date = $('#add-date').value, from = $('#add-from').value, to = $('#add-to').value;
+  const pause = Math.max(0, Number($('#add-pause').value) || 0);
+  if (!sid) return showErr('#add-err', 'Zuerst einen Mitarbeiter anlegen.');
+  if (!date || !from || !to) return showErr('#add-err', 'Datum, Kommen und Gehen ausfüllen.');
+  const start = parseDT(date, from); let end = parseDT(date, to); if (end <= start) end += 86400000;
+  const { error } = await sb.from('shifts').insert({ staff_id: sid, start_at: new Date(start).toISOString(), end_at: new Date(end).toISOString(), break_min_manual: pause, edited: true, edited_at: new Date().toISOString() });
+  if (error) return showErr('#add-err', 'Speichern fehlgeschlagen.');
+  showErr('#add-err', ''); $('#add-from').value = $('#add-to').value = ''; $('#add-pause').value = 0; toast('Eintrag hinzugefügt'); loadAll();
+});
+
+const RPC_ERR = { pin_taken: 'Diese PIN ist schon vergeben. Bitte eine andere wählen.', pin_format: 'Die PIN braucht genau 4 Ziffern.', name_empty: 'Bitte einen Namen eingeben.', not_admin: 'Keine Berechtigung.' };
+const rpcMsg = err => { const m = String(err?.message || ''); for (const k in RPC_ERR) if (m.includes(k)) return RPC_ERR[k]; return 'Speichern fehlgeschlagen.'; };
+function renderStaff() {
+  const el = $('#staff-list');
+  const list = [...A.staff.values()].sort((a, b) => (b.active - a.active) || a.name.localeCompare(b.name, 'de'));
+  if (!list.length) { el.innerHTML = '<div class="empty">Noch niemand angelegt. Name und 4-stellige PIN eingeben.</div>'; return; }
+  el.innerHTML = list.map(v => `<div class="staff-item ${v.active ? '' : 'off'}">
+    <span class="nm">${esc(v.name)}</span>
+    <div class="row">
+      <input id="pin-${v.id}" type="password" inputmode="numeric" maxlength="4" placeholder="neue PIN" autocomplete="off" style="width:110px">
+      <button class="btn sec sm" data-pin="${v.id}">PIN ändern</button>
+      <button class="btn sec sm" data-tog="${v.id}">${v.active ? 'Deaktivieren' : 'Aktivieren'}</button>
+    </div></div>`).join('');
+}
+$('#staff-list').addEventListener('click', async e => {
+  const pb = e.target.closest('[data-pin]'), tb = e.target.closest('[data-tog]');
+  if (pb) {
+    const id = pb.dataset.pin, pin = $('#pin-' + id).value.trim();
+    if (!/^\d{4}$/.test(pin)) return showErr('#staff-err', RPC_ERR.pin_format);
+    const { error } = await sb.rpc('set_staff_pin', { p_staff: id, p_pin: pin });
+    if (error) return showErr('#staff-err', rpcMsg(error));
+    showErr('#staff-err', ''); $('#pin-' + id).value = ''; toast('PIN geändert');
+  }
+  if (tb) {
+    const id = tb.dataset.tog, v = A.staff.get(id); if (!v) return;
+    const { error } = await sb.rpc('set_staff_active', { p_staff: id, p_active: !v.active });
+    if (error) return showErr('#staff-err', /pin_taken/.test(error.message) ? 'Die alte PIN ist inzwischen vergeben. Erst eine neue PIN setzen.' : rpcMsg(error));
+    showErr('#staff-err', ''); loadAll();
+  }
+});
+$('#f-staff').addEventListener('submit', async e => {
+  e.preventDefault();
+  const name = $('#new-name').value.trim(), pin = $('#new-pin').value.trim();
+  if (!name) return showErr('#staff-err', RPC_ERR.name_empty);
+  if (!/^\d{4}$/.test(pin)) return showErr('#staff-err', RPC_ERR.pin_format);
+  const { error } = await sb.rpc('add_staff', { p_name: name, p_pin: pin });
+  if (error) return showErr('#staff-err', rpcMsg(error));
+  $('#new-name').value = $('#new-pin').value = ''; showErr('#staff-err', ''); toast(first(name) + ' angelegt'); loadAll();
+});
+
+$('#csv-btn').onclick = () => {
+  const rows = [...A.month].sort((a, b) => staffName(a.staff_id).localeCompare(staffName(b.staff_id), 'de') || ms(a.start_at) - ms(b.start_at));
+  const L = ['Mitarbeiter;Datum;Kommen;Gehen;Pause (Min);Netto (h:mm);Netto (Std. dezimal);Hinweise'];
+  for (const s of rows) {
+    L.push([staffName(s.staff_id), new Date(ms(s.start_at)).toLocaleDateString('de-AT'), hm(s.start_at), s.end_at ? hm(s.end_at) : '',
+      Math.round(breakMin(s)), fmtH(netMin(s)).replace(' h', ''), fmtDec(netMin(s)), flags(s).map(f => f[1]).join(', ')]
+      .map(v => '"' + String(v).replace(/"/g, '""') + '"').join(';'));
+  }
+  const blob = new Blob(['﻿' + L.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `Arbeitszeiten_Doener-Eck_${A.ym.y}-${pad2(A.ym.m + 1)}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+};
+
+/* Nach Klick auf Bestätigungslink direkt in den Chef-Bereich */
+if (!KASSE && /access_token|type=signup/.test(location.hash)) setTab('admin');
+</script>
+</body>
+</html>
