@@ -145,7 +145,7 @@ tr.detail>td{background:var(--sunk);padding:8px}
       <div id="t-pad" style="display:flex;flex-direction:column;gap:14px">
         <div class="prompt">PIN eingeben</div>
         <div class="dots" id="dots"></div>
-        <div class="msg" id="msg">Kommen, Pause oder Gehen – mit deiner PIN</div>
+        <div class="msg" id="msg">Kommen oder Gehen – mit deiner PIN</div>
         <div class="pad" id="pad">
           <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
           <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
@@ -195,7 +195,7 @@ tr.detail>td{background:var(--sunk);padding:8px}
         </div>
         <div class="totals" id="m-totals"></div>
         <div class="tbl-wrap"><table id="m-table"></table></div>
-        <p class="hint">Antippen zeigt die einzelnen Tage. Brutto = Netto-Stunden × Stundenlohn, ohne Zuschläge. Hinweise: Pause unter 30 Min. bei mehr als 6 Std. Arbeit, mehr als 10 Std. am Tag, automatisch beendete Schichten.</p>
+        <p class="hint">Antippen zeigt die einzelnen Tage. Brutto = Netto-Stunden × Stundenlohn, ohne Zuschläge. Hinweise: mehr als 10 Std. am Tag und automatisch beendete Schichten (Gehen vergessen).</p>
       </div>
 
       <div class="card">
@@ -205,7 +205,6 @@ tr.detail>td{background:var(--sunk);padding:8px}
           <div class="field"><span class="lbl">Datum</span><input id="add-date" type="date"></div>
           <div class="field"><span class="lbl">Kommen</span><input id="add-from" type="time"></div>
           <div class="field"><span class="lbl">Gehen</span><input id="add-to" type="time"></div>
-          <div class="field"><span class="lbl">Pause Min.</span><input id="add-pause" type="number" min="0" step="5" value="0"></div>
           <button class="btn" type="submit">Hinzufügen</button>
         </form>
         <p class="err-t" id="add-err" hidden></p>
@@ -225,7 +224,7 @@ tr.detail>td{background:var(--sunk);padding:8px}
 
       <div class="card">
         <h3>Automatisch beenden</h3>
-        <p class="hint">Wer vergisst auszustempeln, wird nachts automatisch zum Ladenschluss ausgestempelt. Die Schicht wird rot markiert, damit du sie prüfen kannst.</p>
+        <p class="hint">Wer vergisst auf „Gehen“ zu drücken, wird um die Ladenschluss-Uhrzeit automatisch ausgestempelt. Die Schicht wird rot markiert, damit du sie prüfen kannst.</p>
         <form id="f-settings" class="row">
           <label class="row" style="gap:6px"><input id="set-auto" type="checkbox" style="width:20px;height:20px"> Aktiv</label>
           <div class="field" style="flex:0 1 140px"><span class="lbl">Ladenschluss</span><input id="set-close" type="time"></div>
@@ -256,16 +255,11 @@ const first = n => String(n || '').trim().split(/\s+/)[0];
 const eur = v => new Intl.NumberFormat('de-AT', { style: 'currency', currency: 'EUR' }).format(v || 0);
 const eurPlain = v => (Math.round((v || 0) * 100) / 100).toFixed(2).replace('.', ',');
 
-function breakMin(sh, now = Date.now()) {
-  if (typeof sh.break_min_manual === 'number') return sh.break_min_manual;
-  return (sh.breaks || []).reduce((a, b) => a + (((ms(b.e) ?? now) - ms(b.s)) / 60000), 0);
-}
+function breakMin() { return 0; }
 const netMin = (sh, now = Date.now()) => Math.max(0, ((ms(sh.end_at) ?? now) - ms(sh.start_at)) / 60000 - breakMin(sh, now));
-const onBreak = sh => { const b = sh.breaks || []; return b.length > 0 && b[b.length - 1].e == null && typeof sh.break_min_manual !== 'number'; };
 function flags(sh) {
-  const out = [], now = Date.now(), net = netMin(sh, now), br = breakMin(sh, now);
+  const out = [], now = Date.now(), net = netMin(sh, now);
   if (!sh.end_at) out.push(dayKey(sh.start_at) !== dayKey(now) ? ['red', 'Ausstempeln vergessen?'] : ['open', 'läuft']);
-  if (net > 360 && br < 30) out.push(['', 'Pause < 30 Min.']);
   if (net > 600) out.push(['red', 'über 10 Std.']);
   if (sh.auto_closed) out.push(['red', 'automatisch beendet']);
   if (sh.edited) out.push(['ed', 'korrigiert']);
@@ -355,7 +349,7 @@ function armIdle() { clearTimeout(idleT); idleT = setTimeout(resetTerm, 20000); 
 function resetTerm() {
   clearTimeout(idleT); T.person = null; T.pin = ''; T.showingDone = false;
   $('#t-who').hidden = true; $('#t-pad').hidden = false;
-  setMsg('Kommen, Pause oder Gehen – mit deiner PIN'); renderDots();
+  setMsg('Kommen oder Gehen – mit deiner PIN'); renderDots();
 }
 function renderWho() {
   const p = T.person; if (!p || T.showingDone) return;
@@ -365,14 +359,10 @@ function renderWho() {
     state = '<span class="state st-out">Nicht eingestempelt</span>';
     info = 'Arbeitsbeginn jetzt um <b class="num">' + hm(Date.now()) + '</b>';
     acts = '<button class="big go" data-a="in">Kommen</button>';
-  } else if (p.state === 'pause') {
-    state = '<span class="state st-pause">In Pause</span>';
-    info = 'Pause seit <b class="num">' + hm(p.since) + '</b> · Arbeit heute <b class="num">' + fmtH(p.worked_min) + '</b>';
-    acts = '<button class="big pause" data-a="resume">Pause beenden</button><button class="big stop" data-a="out">Gehen</button>';
   } else {
     state = '<span class="state st-in">Im Dienst</span>';
     info = 'Seit <b class="num">' + hm(p.start) + '</b> · bisher <b class="num">' + fmtH(p.worked_min) + '</b>';
-    acts = '<button class="big pause" data-a="pause">Pause</button><button class="big stop" data-a="out">Gehen</button>';
+    acts = '<button class="big stop" data-a="out">Gehen</button>';
   }
   w.innerHTML = `<div style="display:flex;flex-direction:column;gap:16px">
     <div class="who">${state}<h2>Hallo ${esc(p.name)}</h2><p>${info}</p></div>
@@ -396,8 +386,6 @@ async function act(kind) {
     const at = hm(r.at);
     const M = {
       in: ['go', '✓', 'Gekommen um ' + at + '. Gute Schicht!'],
-      pause: ['pause', 'Ⅱ', 'Pause ab ' + at],
-      resume: ['go', '✓', 'Pause beendet um ' + at],
       out: ['stop', '✓', 'Gegangen um ' + at + ' · heute ' + fmtH(r.worked_min || 0)],
     }[kind];
     html = `<div class="done"><div class="mark" style="color:var(--${M[0]})">${M[1]}</div><p><b>${esc(r.name)}</b></p><p>${M[2]}</p></div>`;
@@ -511,7 +499,7 @@ function renderNow() {
   if (!A.openShifts.length) { el.innerHTML = '<div class="empty">Niemand eingestempelt.</div>'; return; }
   el.innerHTML = '<div class="tbl-wrap"><table><thead><tr><th>Name</th><th>Seit</th><th class="r">Bisher</th><th>Status</th></tr></thead><tbody>' +
     A.openShifts.map(sh => `<tr><td><b>${esc(staffName(sh.staff_id))}</b></td><td class="num">${dayKey(sh.start_at) === dayKey(Date.now()) ? '' : dShort(sh.start_at) + ' '}${hm(sh.start_at)}</td>
-      <td class="r num">${fmtH(netMin(sh))}</td><td>${onBreak(sh) ? '<span class="flag pz">Pause</span>' : ''}${flagHtml(sh)}</td></tr>`).join('') + '</tbody></table></div>';
+      <td class="r num">${fmtH(netMin(sh))}</td><td>${flagHtml(sh)}</td></tr>`).join('') + '</tbody></table></div>';
 }
 function renderMonth() {
   $('#m-label').textContent = new Date(A.ym.y, A.ym.m, 1).toLocaleDateString('de-AT', { month: 'long', year: 'numeric' });
@@ -532,17 +520,16 @@ function renderMonth() {
 }
 function detailTable(list) {
   if (!list.length) return '<div class="empty">Keine Einträge in diesem Monat.</div>';
-  let h = '<div class="tbl-wrap"><table class="inner"><thead><tr><th>Tag</th><th>Kommen</th><th>Gehen</th><th class="r">Pause</th><th class="r">Netto</th><th></th></tr></thead><tbody>';
+  let h = '<div class="tbl-wrap"><table class="inner"><thead><tr><th>Tag</th><th>Kommen</th><th>Gehen</th><th class="r">Netto</th><th></th></tr></thead><tbody>';
   for (const s of list) {
     h += `<tr><td>${dShort(s.start_at)}</td><td class="num">${hm(s.start_at)}</td><td class="num">${s.end_at ? hm(s.end_at) : '–'}</td>
-      <td class="r num">${Math.round(breakMin(s))}′</td><td class="r num">${fmtH(netMin(s))}</td>
+      <td class="r num">${fmtH(netR(s))}</td>
       <td style="white-space:nowrap">${flagHtml(s)} <button class="btn sec sm" data-edit="${s.id}">Bearbeiten</button></td></tr>`;
     if (A.editing === s.id) {
-      h += `<tr><td colspan="6"><form class="edit" data-form="${s.id}">
+      h += `<tr><td colspan="5"><form class="edit" data-form="${s.id}">
         <div class="field"><span class="lbl">Datum</span><input id="e-date-${s.id}" type="date" value="${dayKey(s.start_at)}"></div>
         <div class="field"><span class="lbl">Kommen</span><input id="e-from-${s.id}" type="time" value="${hm(s.start_at)}"></div>
         <div class="field"><span class="lbl">Gehen</span><input id="e-to-${s.id}" type="time" value="${s.end_at ? hm(s.end_at) : ''}"></div>
-        <div class="field"><span class="lbl">Pause Min.</span><input id="e-pause-${s.id}" type="number" min="0" step="5" value="${Math.round(breakMin(s))}"></div>
         <button class="btn sm" type="submit">Speichern</button>
         <button class="btn danger sm" type="button" data-del="${s.id}">${A.delArm === s.id ? 'Wirklich löschen?' : 'Löschen'}</button>
         <button class="btn sec sm" type="button" data-cancel="1">Abbrechen</button>
@@ -578,12 +565,10 @@ $('#m-table').addEventListener('submit', async e => {
   const f = e.target.closest('form[data-form]'); if (!f) return;
   const id = f.dataset.form, s = A.month.find(x => x.id === id); if (!s) return;
   const date = $('#e-date-' + id).value, from = $('#e-from-' + id).value, to = $('#e-to-' + id).value;
-  const pauseV = Math.max(0, Number($('#e-pause-' + id).value) || 0);
   if (!date || !from) return toast('Datum und Kommen ausfüllen');
   const start = parseDT(date, from); let end = to ? parseDT(date, to) : null;
   if (end != null && end <= start) end += 86400000;
   const body = { start_at: new Date(start).toISOString(), end_at: end == null ? null : new Date(end).toISOString(), edited: true, auto_closed: false, edited_at: new Date().toISOString() };
-  if (pauseV !== Math.round(breakMin(s))) body.break_min_manual = pauseV;
   const { error } = await sb.from('shifts').update(body).eq('id', id);
   if (error) return toast(/one_open/.test(error.message) ? 'Dieser Mitarbeiter hat schon eine offene Schicht.' : 'Speichern fehlgeschlagen');
   A.editing = null; toast('Gespeichert'); loadAll();
@@ -599,13 +584,12 @@ function renderAddForm() {
 $('#f-add').addEventListener('submit', async e => {
   e.preventDefault();
   const sid = $('#add-staff').value, date = $('#add-date').value, from = $('#add-from').value, to = $('#add-to').value;
-  const pause = Math.max(0, Number($('#add-pause').value) || 0);
   if (!sid) return showErr('#add-err', 'Zuerst einen Mitarbeiter anlegen.');
   if (!date || !from || !to) return showErr('#add-err', 'Datum, Kommen und Gehen ausfüllen.');
   const start = parseDT(date, from); let end = parseDT(date, to); if (end <= start) end += 86400000;
-  const { error } = await sb.from('shifts').insert({ staff_id: sid, start_at: new Date(start).toISOString(), end_at: new Date(end).toISOString(), break_min_manual: pause, edited: true, edited_at: new Date().toISOString() });
+  const { error } = await sb.from('shifts').insert({ staff_id: sid, start_at: new Date(start).toISOString(), end_at: new Date(end).toISOString(), edited: true, edited_at: new Date().toISOString() });
   if (error) return showErr('#add-err', 'Speichern fehlgeschlagen.');
-  showErr('#add-err', ''); $('#add-from').value = $('#add-to').value = ''; $('#add-pause').value = 0; toast('Eintrag hinzugefügt'); loadAll();
+  showErr('#add-err', ''); $('#add-from').value = $('#add-to').value = ''; toast('Eintrag hinzugefügt'); loadAll();
 });
 
 const RPC_ERR = { pin_taken: 'Diese PIN ist schon vergeben. Bitte eine andere wählen.', pin_format: 'Die PIN braucht genau 4 Ziffern.', name_empty: 'Bitte einen Namen eingeben.', not_admin: 'Keine Berechtigung.' };
@@ -662,10 +646,10 @@ $('#f-staff').addEventListener('submit', async e => {
 
 $('#csv-btn').onclick = () => {
   const rows = [...A.month].sort((a, b) => staffName(a.staff_id).localeCompare(staffName(b.staff_id), 'de') || ms(a.start_at) - ms(b.start_at));
-  const L = ['Mitarbeiter;Datum;Kommen;Gehen;Pause (Min);Netto (h:mm);Stundenlohn (EUR);Brutto (EUR);Hinweise'];
+  const L = ['Mitarbeiter;Datum;Kommen;Gehen;Netto (h:mm);Stundenlohn (EUR);Brutto (EUR);Hinweise'];
   for (const s of rows) {
     L.push([staffName(s.staff_id), new Date(ms(s.start_at)).toLocaleDateString('de-AT'), hm(s.start_at), s.end_at ? hm(s.end_at) : '',
-      Math.round(breakMin(s)), fmtH(netR(s)).replace(' h', ''),
+      fmtH(netR(s)).replace(' h', ''),
       rateOf(s) == null ? '' : eurPlain(rateOf(s)), payOf(s) == null ? '' : eurPlain(payOf(s)), flags(s).map(f => f[1]).join(', ')]
       .map(v => '"' + String(v).replace(/"/g, '""') + '"').join(';'));
   }
@@ -747,23 +731,23 @@ $('#pdf-btn').onclick = async () => {
       const dt = new Date(A.ym.y, A.ym.m, d), isWe = dt.getDay() === 0 || dt.getDay() === 6;
       const shifts = A.month.filter(s => dayKey(s.start_at) === dayKey(dt.getTime()))
         .sort((a, b) => staffName(a.staff_id).localeCompare(staffName(b.staff_id), 'de') || ms(a.start_at) - ms(b.start_at));
-      if (!shifts.length) { if (isWe) dayWe.add(dayRows.length); dayRows.push([dayLabel(dt), '', '', '', '', '']); continue; }
+      if (!shifts.length) { if (isWe) dayWe.add(dayRows.length); dayRows.push([dayLabel(dt), '', '', '', '']); continue; }
       for (const s of shifts) {
         if (isWe) dayWe.add(dayRows.length);
-        dayRows.push([dayLabel(dt), pdfTxt(staffName(s.staff_id)), hm(s.start_at), s.end_at ? hm(s.end_at) : '-', Math.round(breakMin(s)), fmtH(netR(s)).replace(' h', '')]);
+        dayRows.push([dayLabel(dt), pdfTxt(staffName(s.staff_id)), hm(s.start_at), s.end_at ? hm(s.end_at) : '-', fmtH(netR(s)).replace(' h', '')]);
       }
     }
     let ty = doc.lastAutoTable.finalY + 10;
     doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.text('Tagesübersicht', 14, ty);
     doc.autoTable({
-      startY: ty + 3, head: [['Datum', 'Mitarbeiter', 'Kommen', 'Gehen', 'Pause (Min)', 'Netto']],
+      startY: ty + 3, head: [['Datum', 'Mitarbeiter', 'Kommen', 'Gehen', 'Netto']],
       body: dayRows,
-      foot: [['Summe', '', '', '', '', fmtH(totalNet).replace(' h', '')]],
+      foot: [['Summe', '', '', '', fmtH(totalNet).replace(' h', '')]],
       showHead: 'everyPage', showFoot: 'lastPage',
       styles: { fontSize: 8.5, cellPadding: 1.15 }, headStyles: { fillColor: [21, 24, 29] }, footStyles: { fillColor: [236, 238, 241], textColor: 20 },
       alternateRowStyles: { fillColor: [255, 255, 255] },
       columnStyles: { 0: { cellWidth: 34 } },
-      didParseCell: align([4, 5], c => { if (c.section === 'body' && dayWe.has(c.row.index)) c.cell.styles.fillColor = shade; }),
+      didParseCell: align([4], c => { if (c.section === 'body' && dayWe.has(c.row.index)) c.cell.styles.fillColor = shade; }),
       didDrawPage: () => { if (doc.internal.getCurrentPageInfo().pageNumber > 1) header(); },
       margin: { top: 30, left: 14, right: 14 },
     });
@@ -780,20 +764,20 @@ $('#pdf-btn').onclick = async () => {
         const label = dt.toLocaleDateString('de-AT', { weekday: 'short' }).replace('.', '') + ', ' + pad2(d) + '.' + pad2(A.ym.m + 1) + '.' + A.ym.y;
         const isWe = dt.getDay() === 0 || dt.getDay() === 6;
         const list = byDay.get(dayKey(dt.getTime())) || [];
-        if (!list.length) { if (isWe) weekendRows.add(body.length); body.push([label, '', '', '', '', '']); continue; }
+        if (!list.length) { if (isWe) weekendRows.add(body.length); body.push([label, '', '', '', '']); continue; }
         for (const s of list) {
           if (isWe) weekendRows.add(body.length);
-          body.push([label, hm(s.start_at), s.end_at ? hm(s.end_at) : '-', Math.round(breakMin(s)), fmtH(netR(s)).replace(' h', ''), pdfTxt(flags(s).map(f => f[1]).join(', '))]);
+          body.push([label, hm(s.start_at), s.end_at ? hm(s.end_at) : '-', fmtH(netR(s)).replace(' h', ''), pdfTxt(flags(s).map(f => f[1]).join(', '))]);
         }
       }
       doc.autoTable({
-        startY: 36, head: [['Datum', 'Kommen', 'Gehen', 'Pause (Min)', 'Netto', 'Hinweise']],
+        startY: 36, head: [['Datum', 'Kommen', 'Gehen', 'Netto', 'Hinweise']],
         body,
-        didParseCell: align([3, 4], c => { if (c.section === 'body' && weekendRows.has(c.row.index)) c.cell.styles.fillColor = shade; }),
-        foot: [['Summe', '', '', '', fmtH(r.net).replace(' h', ''), r.rate.length ? 'Brutto: ' + eurPdf(r.pay) : '']],
+        didParseCell: align([3], c => { if (c.section === 'body' && weekendRows.has(c.row.index)) c.cell.styles.fillColor = shade; }),
+        foot: [['Summe', '', '', fmtH(r.net).replace(' h', ''), r.rate.length ? 'Brutto: ' + eurPdf(r.pay) : '']],
         styles: { fontSize: 8.5, cellPadding: 1.15 }, headStyles: { fillColor: [21, 24, 29] }, footStyles: { fillColor: [236, 238, 241], textColor: 20 },
         alternateRowStyles: { fillColor: [255, 255, 255] },
-        columnStyles: { 0: { cellWidth: 34 }, 1: { cellWidth: 24 }, 2: { cellWidth: 24 }, 3: { cellWidth: 26 }, 4: { cellWidth: 22 } },
+        columnStyles: { 0: { cellWidth: 34 }, 1: { cellWidth: 24 }, 2: { cellWidth: 24 }, 3: { cellWidth: 22 } },
         margin: { left: 14, right: 14 },
       });
       let y = doc.lastAutoTable.finalY + 8;
