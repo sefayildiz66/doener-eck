@@ -219,6 +219,7 @@ tr.detail>td{background:var(--sunk);padding:8px}
           <input id="new-rate" type="number" inputmode="decimal" min="0" step="0.01" placeholder="€/Std. brutto" style="flex:1 1 110px">
           <button class="btn" type="submit">Anlegen</button>
         </form>
+        <p class="hint">Ein geänderter Stundenlohn gilt ab dem 1. dieses Monats. Feld leer lassen und „Lohn speichern“ = kein Lohn. Frühere Monate bleiben unverändert.</p>
         <p class="err-t" id="staff-err" hidden></p>
       </div>
 
@@ -616,7 +617,11 @@ $('#staff-list').addEventListener('click', async e => {
     if (val != null && (!isFinite(val) || val < 0)) return showErr('#staff-err', 'Bitte einen gültigen Stundenlohn eingeben, z. B. 12,50.');
     const { error } = await sb.from('staff').update({ hourly_rate: val }).eq('id', id);
     if (error) return showErr('#staff-err', 'Speichern fehlgeschlagen.');
-    showErr('#staff-err', ''); toast('Stundenlohn gespeichert'); loadAll(); return;
+    // Neuer Lohn gilt ab dem 1. des aktuellen Monats; frühere Monate bleiben unverändert
+    const now = new Date(), monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    const { error: e2 } = await sb.from('shifts').update({ hourly_rate: val }).eq('staff_id', id).gte('start_at', monthStart);
+    if (e2) return showErr('#staff-err', 'Lohn gespeichert, aber die Schichten dieses Monats konnten nicht angepasst werden. Bitte nochmal speichern.');
+    showErr('#staff-err', ''); toast(val == null ? 'Stundenlohn entfernt (ab diesem Monat)' : 'Stundenlohn gespeichert (ab diesem Monat)'); loadAll(); return;
   }
   if (pb) {
     const id = pb.dataset.pin, pin = $('#pin-' + id).value.trim();
