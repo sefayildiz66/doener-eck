@@ -121,6 +121,15 @@ tr.detail>td{background:var(--sunk);padding:8px}
 .totals{display:flex;gap:18px;flex-wrap:wrap}
 .totals div{display:flex;flex-direction:column}
 .totals b{font-family:var(--f-mono);font-size:22px;font-variant-numeric:tabular-nums}
+.cam-wrap{display:flex;flex-direction:column;align-items:center;gap:6px}
+.cam{width:132px;height:132px;border-radius:50%;object-fit:cover;transform:scaleX(-1);background:var(--sunk);border:3px solid var(--line)}
+.cam-note{font-size:12px;color:var(--muted);text-align:center}
+.shot{width:96px;height:96px;border-radius:50%;object-fit:cover;align-self:center;border:3px solid var(--line)}
+.ph{width:34px;height:34px;border-radius:7px;object-fit:cover;vertical-align:middle;margin-left:6px;cursor:zoom-in;border:1px solid var(--line)}
+.ph-none{display:inline-block;width:34px;height:34px;border-radius:7px;vertical-align:middle;margin-left:6px;border:1px dashed var(--line)}
+.lightbox{position:fixed;inset:0;background:rgba(0,0,0,.82);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;z-index:30;padding:calc(16px + env(safe-area-inset-top,0px)) 16px calc(16px + env(safe-area-inset-bottom,0px));cursor:zoom-out}
+.lightbox img{max-width:min(92vw,520px);max-height:75vh;border-radius:12px}
+.lightbox p{color:#fff;margin:0;font-weight:600;text-align:center}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-weight:600;font-size:14px;z-index:20;max-width:calc(100% - 32px)}
 @media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
 @media (max-width:440px){.clock .t{font-size:28px}.brand h1{font-size:24px}.hide-s{display:none}}
@@ -233,10 +242,22 @@ tr.detail>td{background:var(--sunk);padding:8px}
         </form>
         <p class="err-t" id="set-err" hidden></p>
       </div>
+
+      <div class="card">
+        <h3>Foto beim Stempeln</h3>
+        <p class="hint">Beim Kommen und Gehen macht die Frontkamera der Kasse ein Foto. Nur du siehst die Fotos, sie werden automatisch gelöscht. Nur mit schriftlicher Zustimmung der Mitarbeiter verwenden.</p>
+        <form id="f-photo" class="row">
+          <label class="row" style="gap:6px"><input id="set-photo" type="checkbox" style="width:20px;height:20px"> Aktiv</label>
+          <div class="field" style="flex:0 1 160px"><span class="lbl">Löschen nach (Tagen)</span><input id="set-photo-days" type="number" min="1" max="365" step="1"></div>
+          <button class="btn sec" type="submit" style="align-self:flex-end">Speichern</button>
+        </form>
+        <p class="err-t" id="photo-err" hidden></p>
+      </div>
     </div>
   </section>
 </div>
 <div class="toast" id="toast" hidden></div>
+<div class="lightbox" id="lightbox" hidden><img id="lb-img" alt=""><p id="lb-cap"></p></div>
 
 <script>
 const SB_URL = 'https://budfjiilekyconwwogkk.supabase.co';
@@ -328,9 +349,49 @@ const ERR = {
   already_in: 'Du bist schon eingestempelt.',
   bad_state: 'Status hat sich geändert. Bitte nochmal mit PIN.',
 };
-async function stamp(pin, action) {
+/* ---------- Frontkamera ---------- */
+const CAM = { stream: null, ready: null };
+function startCam() {
+  stopCam();
+  if (!navigator.mediaDevices?.getUserMedia) { camNote('Kamera nicht verfügbar – Stempeln geht trotzdem.'); return; }
+  CAM.ready = navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 480 }, height: { ideal: 480 } }, audio: false })
+    .then(stream => {
+      if (!T.person || T.showingDone) { stream.getTracks().forEach(t => t.stop()); return false; }
+      CAM.stream = stream;
+      const v = $('#cam'); if (!v) return false;
+      v.srcObject = stream;
+      return new Promise(res => {
+        const ok = () => res(v.videoWidth > 0);
+        if (v.readyState >= 2 && v.videoWidth) return res(true);
+        v.onloadeddata = ok; v.play().catch(() => {}); setTimeout(ok, 2500);
+      });
+    })
+    .catch(() => { camNote('Kamera nicht erlaubt oder nicht verfügbar – Stempeln geht trotzdem.'); return false; });
+}
+function camNote(t) { const n = $('#cam-note'); if (n) n.textContent = t; }
+function stopCam() {
+  if (CAM.stream) CAM.stream.getTracks().forEach(t => t.stop());
+  CAM.stream = null; CAM.ready = null;
+}
+async function snapPhoto() {
+  if (!CAM.ready) return null;
+  const ok = await Promise.race([CAM.ready, new Promise(r => setTimeout(() => r(false), 2500))]);
+  const v = $('#cam');
+  if (!ok || !v || !v.videoWidth) return null;
+  const size = 320, c = document.createElement('canvas'); c.width = c.height = size;
+  const side = Math.min(v.videoWidth, v.videoHeight);
+  const sx = (v.videoWidth - side) / 2, sy = (v.videoHeight - side) / 2;
+  const g = c.getContext('2d');
+  g.translate(size, 0); g.scale(-1, 1); // so wie in der Vorschau (gespiegelt)
+  g.drawImage(v, sx, sy, side, side, 0, 0, size, size);
+  try { return c.toDataURL('image/jpeg', 0.7); } catch (e) { return null; }
+}
+
+async function stamp(pin, action, photo) {
   if (!sb) throw new Error('nodb');
-  const { data, error } = await sb.rpc('stamp', { p_pin: pin, p_action: action });
+  const args = { p_pin: pin, p_action: action };
+  if (photo) args.p_photo = photo;
+  const { data, error } = await sb.rpc('stamp', args);
   if (error) throw error;
   return data;
 }
@@ -340,7 +401,7 @@ async function submitPin() {
   try {
     const r = await stamp(pin, 'check');
     if (r.error) { setMsg(ERR[r.error] || 'Fehler.', true); renderDots(true); return; }
-    T.person = { pin, ...r }; renderDots(); renderWho(); armIdle();
+    T.person = { pin, ...r }; renderDots(); renderWho(); if (r.photo) startCam(); armIdle();
   } catch (e) {
     setMsg(navigator.onLine ? 'Verbindung fehlgeschlagen. Nochmal versuchen.' : 'Keine Internetverbindung.', true); renderDots(true);
   } finally { T.busy = false; }
@@ -348,7 +409,7 @@ async function submitPin() {
 let idleT;
 function armIdle() { clearTimeout(idleT); idleT = setTimeout(resetTerm, 20000); }
 function resetTerm() {
-  clearTimeout(idleT); T.person = null; T.pin = ''; T.showingDone = false;
+  clearTimeout(idleT); stopCam(); T.person = null; T.pin = ''; T.showingDone = false;
   $('#t-who').hidden = true; $('#t-pad').hidden = false;
   setMsg('Kommen oder Gehen – mit deiner PIN'); renderDots();
 }
@@ -365,7 +426,10 @@ function renderWho() {
     info = 'Seit <b class="num">' + hm(p.start) + '</b> · bisher <b class="num">' + fmtH(p.worked_min) + '</b>';
     acts = '<button class="big stop" data-a="out">Gehen</button>';
   }
+  const cam = p.photo ? `<div class="cam-wrap"><video id="cam" class="cam" autoplay playsinline muted></video>
+    <div class="cam-note" id="cam-note">Beim Drücken wird ein Foto gemacht.</div></div>` : '';
   w.innerHTML = `<div style="display:flex;flex-direction:column;gap:16px">
+    ${cam}
     <div class="who">${state}<h2>Hallo ${esc(p.name)}</h2><p>${info}</p></div>
     <div class="acts">${acts}</div>
     <button class="ghost" data-a="cancel">Abbrechen</button></div>`;
@@ -382,25 +446,28 @@ async function act(kind) {
   const p = T.person;
   let html;
   try {
-    const r = await stamp(p.pin, kind);
+    const photo = p.photo ? await snapPhoto() : null;
+    stopCam();
+    const r = await stamp(p.pin, kind, photo);
     if (r.error) throw new Error(ERR[r.error] || 'Fehler');
     const at = hm(r.at);
     const M = {
       in: ['go', '✓', 'Gekommen um ' + at + '. Gute Schicht!'],
       out: ['stop', '✓', 'Gegangen um ' + at + ' · heute ' + fmtH(r.worked_min || 0)],
     }[kind];
-    html = `<div class="done"><div class="mark" style="color:var(--${M[0]})">${M[1]}</div><p><b>${esc(r.name)}</b></p><p>${M[2]}</p></div>`;
+    const shot = photo && r.photo_saved ? `<img class="shot" src="${photo}" alt="Foto">` : `<div class="mark" style="color:var(--${M[0]})">${M[1]}</div>`;
+    html = `<div class="done">${shot}<p><b>${esc(r.name)}</b></p><p>${M[2]}</p></div>`;
   } catch (e) {
     html = `<div class="done"><p class="err-t" style="font-size:16px">${esc(e.message && ERR[e.message] ? ERR[e.message] : (e.message && !/fetch/i.test(e.message) ? e.message : 'Speichern hat nicht geklappt. Bitte nochmal mit PIN versuchen.'))}</p></div>`;
   } finally {
-    T.busy = false; T.showingDone = true; p.pin = null;
+    stopCam(); T.busy = false; T.showingDone = true; p.pin = null;
     $('#t-who').innerHTML = html; setTimeout(resetTerm, 3500);
   }
 }
 renderDots();
 
 /* ---------- admin ---------- */
-const A = { inited: false, user: null, isAdmin: false, staff: new Map(), month: [], openShifts: [], ym: (() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; })(), expanded: new Set(), editing: null, delArm: null, signup: false };
+const A = { inited: false, user: null, isAdmin: false, staff: new Map(), month: [], openShifts: [], ym: (() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; })(), expanded: new Set(), editing: null, delArm: null, signup: false, photos: new Map(), photoChecked: new Set() };
 
 function renderGate() {
   $('#a-login').hidden = !!A.user;
@@ -519,11 +586,31 @@ function renderMonth() {
   }
   t.innerHTML = html + '</tbody>';
 }
+async function ensurePhotos(list) {
+  const ids = list.filter(s => !A.photoChecked.has(s.id)).map(s => s.id);
+  if (!ids.length || !sb) return;
+  ids.forEach(id => A.photoChecked.add(id));
+  for (let i = 0; i < ids.length; i += 50) {
+    const { data, error } = await sb.from('stamp_photos').select('shift_id,kind,taken_at,image').in('shift_id', ids.slice(i, i + 50));
+    if (error) continue;
+    for (const ph of data) { if (!A.photos.has(ph.shift_id)) A.photos.set(ph.shift_id, {}); A.photos.get(ph.shift_id)[ph.kind] = ph; }
+  }
+  // offene Schichten später nochmal prüfen (Foto beim Gehen kommt noch)
+  list.filter(s => !s.end_at).forEach(s => A.photoChecked.delete(s.id));
+  renderMonth();
+}
+function thumb(s, kind) {
+  if (!(A.settings?.photo_enabled || A.photos.has(s.id))) return '';
+  const ph = A.photos.get(s.id)?.[kind];
+  if (!ph) return kind === 'out' && !s.end_at ? '' : '<span class="ph-none" title="Kein Foto"></span>';
+  return `<img class="ph" src="${ph.image}" alt="Foto ${kind === 'in' ? 'Kommen' : 'Gehen'}" data-ph="${s.id}|${kind}">`;
+}
 function detailTable(list) {
   if (!list.length) return '<div class="empty">Keine Einträge in diesem Monat.</div>';
+  ensurePhotos(list);
   let h = '<div class="tbl-wrap"><table class="inner"><thead><tr><th>Tag</th><th>Kommen</th><th>Gehen</th><th class="r">Netto</th><th></th></tr></thead><tbody>';
   for (const s of list) {
-    h += `<tr><td>${dShort(s.start_at)}</td><td class="num">${hm(s.start_at)}</td><td class="num">${s.end_at ? hm(s.end_at) : '–'}</td>
+    h += `<tr><td>${dShort(s.start_at)}</td><td class="num" style="white-space:nowrap">${hm(s.start_at)}${thumb(s, 'in')}</td><td class="num" style="white-space:nowrap">${s.end_at ? hm(s.end_at) : '–'}${s.end_at && !s.auto_closed ? thumb(s, 'out') : ''}</td>
       <td class="r num">${fmtH(netR(s))}</td>
       <td style="white-space:nowrap">${flagHtml(s)} <button class="btn sec sm" data-edit="${s.id}">Bearbeiten</button></td></tr>`;
     if (A.editing === s.id) {
@@ -546,7 +633,18 @@ function parseDT(dateStr, timeStr) {
 }
 $('#m-prev').onclick = () => { A.ym.m--; if (A.ym.m < 0) { A.ym.m = 11; A.ym.y--; } A.expanded.clear(); A.editing = null; loadAll(); };
 $('#m-next').onclick = () => { A.ym.m++; if (A.ym.m > 11) { A.ym.m = 0; A.ym.y++; } A.expanded.clear(); A.editing = null; loadAll(); };
+function openPhoto(key) {
+  const [id, kind] = key.split('|'), ph = A.photos.get(id)?.[kind];
+  const sh = A.month.find(x => x.id === id); if (!ph) return;
+  $('#lb-img').src = ph.image;
+  $('#lb-cap').textContent = `${sh ? staffName(sh.staff_id) : ''} · ${kind === 'in' ? 'Kommen' : 'Gehen'} · ${dShort(ph.taken_at)} ${hm(ph.taken_at)}`;
+  $('#lightbox').hidden = false;
+}
+$('#lightbox').addEventListener('click', () => { $('#lightbox').hidden = true; $('#lb-img').removeAttribute('src'); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#lightbox').hidden) $('#lightbox').click(); });
 $('#m-table').addEventListener('click', async e => {
+  const phEl = e.target.closest('[data-ph]');
+  if (phEl) { openPhoto(phEl.dataset.ph); return; }
   const p = e.target.closest('tr.person');
   if (p) { const id = p.dataset.p; A.expanded.has(id) ? A.expanded.delete(id) : A.expanded.add(id); renderMonth(); return; }
   const ed = e.target.closest('[data-edit]');
@@ -671,7 +769,17 @@ function renderSettings() {
   if (!A.settings) return;
   if (document.activeElement?.id !== 'set-close') $('#set-close').value = String(A.settings.closing_time || '22:00').slice(0, 5);
   $('#set-auto').checked = !!A.settings.auto_close;
+  $('#set-photo').checked = !!A.settings.photo_enabled;
+  if (document.activeElement?.id !== 'set-photo-days') $('#set-photo-days').value = A.settings.photo_days ?? 30;
 }
+$('#f-photo').addEventListener('submit', async e => {
+  e.preventDefault();
+  const d = Math.round(Number($('#set-photo-days').value));
+  if (!(d >= 1 && d <= 365)) return showErr('#photo-err', 'Bitte eine Zahl zwischen 1 und 365 Tagen eingeben.');
+  const { error } = await sb.from('settings').update({ photo_enabled: $('#set-photo').checked, photo_days: d }).eq('id', 1);
+  if (error) return showErr('#photo-err', 'Speichern fehlgeschlagen.');
+  showErr('#photo-err', ''); toast($('#set-photo').checked ? 'Foto beim Stempeln ist aktiv' : 'Foto beim Stempeln ist aus'); loadAll();
+});
 $('#f-settings').addEventListener('submit', async e => {
   e.preventDefault();
   const t = $('#set-close').value;
