@@ -6,6 +6,9 @@
 <meta name="theme-color" content="#15181D">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Döner Eck">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
 <title>Döner Eck Stempeluhr</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2315181D'/%3E%3Ccircle cx='32' cy='32' r='20' fill='none' stroke='%23F2AE16' stroke-width='5'/%3E%3Cpath d='M32 20v13l8 6' stroke='%23F2AE16' stroke-width='5' stroke-linecap='round' fill='none'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -124,6 +127,9 @@ tr.detail>td{background:var(--sunk);padding:8px}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-weight:600;font-size:14px;z-index:20;max-width:calc(100% - 32px)}
 @media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
 @media (max-width:440px){.clock .t{font-size:28px}.brand h1{font-size:24px}.hide-s{display:none}}
+.a2hs{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(12px + env(safe-area-inset-bottom,0px));width:min(520px,calc(100% - 24px));background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:var(--r);box-shadow:0 8px 28px rgba(0,0,0,.18);padding:12px 40px 12px 14px;font-size:14px;z-index:19}
+.a2hs b{font-weight:600}
+.a2hs button{position:absolute;top:6px;right:6px;border:0;background:none;font-size:20px;line-height:1;padding:6px 8px;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -804,6 +810,15 @@ $('#pdf-btn').onclick = async () => {
 
 /* Nach Klick auf Bestätigungslink direkt in den Chef-Bereich */
 if (!KASSE && /access_token|type=signup/.test(location.hash)) setTab('admin');
+</script>
+<div class="a2hs" id="a2hs" hidden role="note">📱 Als App nutzen: in Safari <b>Teilen → „Zum Home-Bildschirm“</b>, dann vom Home-Bildschirm öffnen.<button type="button" aria-label="Hinweis schließen" onclick="this.parentNode.hidden=true;try{localStorage.setItem('a2hsDismissed','1')}catch(e){}">×</button></div>
+<script>
+(function(){
+  var ios=/iPhone|iPad|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+  var standalone=window.navigator.standalone===true||matchMedia('(display-mode: standalone)').matches;
+  var dismissed=false; try{dismissed=localStorage.getItem('a2hsDismissed')==='1'}catch(e){}
+  if(ios&&!standalone&&!dismissed) document.getElementById('a2hs').hidden=false;
+})();
 </script>
 </body>
 </html>
